@@ -44,7 +44,7 @@ export async function injectHeader(userData) {
                     border: none;
                     padding: 0;
                     cursor: pointer;">
-                    <img src="../icon/logout.png"
+                    <img src="/icon/logout.png"
                          alt="Sign Out"
                          style="width:32px;height:32px;display:block;">
                 </button>
