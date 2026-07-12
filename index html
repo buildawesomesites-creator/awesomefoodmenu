@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <title>Redirecting...</title>
     <script>
-        const targetUrl = "user/user-menu.html";
-        window.location.replace(targetUrl);
+        const targetPath = "user/user-menu.html";
+        const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, "");
+        window.location.replace(baseUrl + "/" + targetPath);
     </script>
 </head>
 <body>
-    <p>Redirecting to <script>document.write(targetUrl);</script>...</p>
+    <p>Redirecting...</p>
 </body>
 </html>
