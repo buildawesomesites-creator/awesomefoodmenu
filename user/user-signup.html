@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>User Sign Up</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding: 20px 20px 100px 20px; }
+        
+        .auth-container { background: #fff; padding: 32px 24px; border-radius: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.08); width: 100%; max-width: 400px; text-align: center; margin-top: auto; }
+        
+        #shop-logo { width: 90px; height: 90px; border-radius: 20px; object-fit: cover; margin-bottom: 20px; border: 1px solid #eee; display: none; }
+        .shop-name { color: #007bff; font-size: 1.1rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
+        h2 { color: #1a1a1a; margin: 0 0 25px 0; font-weight: 800; font-size: 1.5rem; }
+        
+        input { width: 100%; padding: 16px; border: 2px solid #f0f0f0; border-radius: 16px; margin: 8px 0; font-size: 16px; background: #fcfcfc; transition: border-color 0.2s; }
+        input:focus { border-color: #007bff; outline: none; background: #fff; }
+        
+        button { width: 100%; padding: 16px; margin-top: 15px; background: #007bff; color: #fff; border: none; border-radius: 16px; font-weight: 700; cursor: pointer; font-size: 16px; transition: transform 0.1s, background 0.2s; }
+        button:active { transform: scale(0.98); }
+        button:hover { background: #0056b3; }
+
+        .login-link { margin-top: 25px; font-size: 14px; color: #666; }
+        .login-link a { color: #007bff; text-decoration: none; font-weight: 600; }
+        .login-link a:hover { text-decoration: underline; }
+
+        #toast { 
+            visibility: hidden; 
+            min-width: 250px; 
+            max-width: 90%;
+            color: #fff; 
+            text-align: center; 
+            border-radius: 12px; 
+            padding: 16px 24px; 
+            position: fixed; 
+            left: 50%; 
+            bottom: calc(20px + env(safe-area-inset-bottom)); 
+            transform: translateX(-50%); 
+            z-index: 10000; 
+            font-weight: 600; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); 
+        }
+        #toast.show { visibility: visible; animation: fadein 0.5s; }
+        .success { background: #28a745; }
+        .error { background: #dc3545; }
+        @keyframes fadein { 
+            from { bottom: 0; opacity: 0; } 
+            to { bottom: calc(20px + env(safe-area-inset-bottom)); opacity: 1; } 
+        }
+        
+        #footer-container { width: 100%; margin-top: auto; }
+    </style>
+</head>
+<body>
+
+<div class="auth-container">
+    <img id="shop-logo" alt="Logo" onerror="this.style.display='none'">
+    <div class="shop-name" id="shop-name-display"></div>
+    <h2>Create Account</h2>
+    
+    <input type="text" id="name" placeholder="Full Name">
+    <input type="email" id="email" placeholder="Email Address" inputmode="email">
+    <input type="password" id="password" placeholder="Password">
+    
+    <button onclick="handleSignup()">Sign Up</button>
+
+    <div class="login-link">
+        Already have an account? <a href="user-login.html">Sign In</a>
+    </div>
+</div>
+
+<div id="footer-container"></div>
+<div id="toast"></div>
+
+<script type="module">
+    import { db, auth } from "./firebase-config.js";
+    import { doc, setDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+    import { createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+    import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
+    import { injectFooter } from "./user-footer.js";
+
+    injectFooter();
+
+    function renderUI(name, logo) {
+        document.getElementById("shop-name-display").textContent = name || "Store";
+        const logoEl = document.getElementById("shop-logo");
+        if (logo) {
+            logoEl.src = getFullImageUrl(logo);
+            logoEl.style.display = 'inline-block';
+        }
+    }
+
+    renderUI(localStorage.getItem("shopName"), localStorage.getItem("shopLogo"));
+
+    function showToast(msg, type) {
+        const toast = document.getElementById("toast");
+        toast.textContent = msg;
+        toast.className = `show ${type}`;
+        setTimeout(() => toast.className = "", 3000);
+    }
+
+    window.handleSignup = async () => {
+        const name = document.getElementById("name").value.trim();
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+
+        if (!name || !email || !password) { showToast("All fields are required", "error"); return; }
+
+        try {
+            const res = await createUserWithEmailAndPassword(auth, email, password);
+            await setDoc(doc(db, DB_FIELDS.USERS.COLLECTION, res.user.uid), {
+                [DB_FIELDS.USERS.FIELDS.UID]: res.user.uid,
+                [DB_FIELDS.USERS.FIELDS.NAME]: name,
+                [DB_FIELDS.USERS.FIELDS.USER_EMAIL]: email,
+                [DB_FIELDS.USERS.FIELDS.ROLE]: "buyer",
+                [DB_FIELDS.USERS.FIELDS.CREATED_AT]: new Date().toISOString()
+            });
+            showToast("Account Created Successfully!", "success");
+            setTimeout(() => window.location.href = "user-login.html", 1500);
+        } catch (e) {
+            showToast("Signup failed: " + e.message, "error");
+        }
+    };
+</script>
+</body>
+</html>
+

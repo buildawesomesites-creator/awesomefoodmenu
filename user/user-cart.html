@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cart</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        :root { --primary: #28a745; --bg: #f8f9fa; }
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        body { background: var(--bg); padding: 20px 20px 120px 20px; margin: 0; opacity: 0; transition: opacity 0.3s ease; }
+        
+        .cart-container { max-width: 600px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        h2 { font-size: 28px; margin-top: 0; color: #333; }
+        .cart-item { display: flex; align-items: center; margin-bottom: 25px; padding-bottom: 20px; border-bottom: 1px solid #eee; gap: 20px; }
+        .item-img { width: 100px; height: 100px; border-radius: 16px; object-fit: cover; background: #eee; }
+        .item-content { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+        .item-title { font-weight: 900; font-size: 20px; color: #333; }
+        .item-actions { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
+        .qty-controls { display: flex; align-items: center; gap: 15px; }
+        .qty-btn { width: 45px; height: 45px; border: none; border-radius: 12px; background: var(--primary); color: #fff; font-size: 24px; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .qty-text { font-size: 22px; font-weight: 900; min-width: 40px; text-align: center; }
+        .item-price { font-weight: 900; font-size: 20px; color: #333; margin-left: auto; text-align: right; white-space: nowrap; }
+        
+        #cart-total { font-size: 20px; padding: 15px 0; }
+        .total-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .final-total { font-size: 26px !important; color: var(--primary); border-top: 2px solid #eee; padding-top: 15px !important; }
+        #checkout-btn { width: 100%; padding: 22px; border-radius: 16px; background: #28a745; color: #fff; font-size: 22px; font-weight: 900; margin-top: 20px; cursor: pointer; border: none; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+    <div id="footer-container"></div>
+
+    <div class="cart-container">
+        <h2>Your Cart</h2>
+        <div id="cart-items-list"></div>
+        <div id="cart-total"></div>
+        <button id="checkout-btn" onclick="generateCheckoutQR()" style="display:none;">Checkout</button>
+        <div id="empty-state" style="display:none; text-align:center; padding: 40px 0;">
+            <p style="font-size: 20px;">Your cart is empty.</p>
+            <a href="user-menu.html" style="color:#28a745; font-size: 20px; font-weight:900; text-decoration: none;">Go to Menu</a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initAuth } from "./user-guard.js";
+        import { injectHeader } from "./user-header.js";
+        import { injectFooter } from "./user-footer.js";
+        import { auth, db } from "./firebase-config.js";
+        import { DB_FIELDS, getFullImageUrl, StorageManager } from "./globaldata.js";
+        import { doc, getDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        
+        const P = DB_FIELDS.PRODUCTS.FIELDS;
+
+        initAuth(false, (user, userData) => {
+            injectHeader(userData);
+            injectFooter();
+
+            let shopSettings = { currency: '$', vatpercent: 0 };
+
+            window.changeQty = (id, change) => {
+                let cart = StorageManager.get('CART') || [];
+                const itemIndex = cart.findIndex(i => i.id === id);
+                
+                if (itemIndex > -1) {
+                    const currentQty = parseInt(cart[itemIndex].qty || 1);
+                    cart[itemIndex].qty = currentQty + change;
+                    
+                    if (cart[itemIndex].qty <= 0) {
+                        cart.splice(itemIndex, 1);
+                    }
+                    StorageManager.set('CART', cart);
+                    renderCart();
+                }
+            };
+
+            window.generateCheckoutQR = () => {
+                window.location.href = auth.currentUser ? "user-checkout.html" : "user-login.html";
+            };
+
+            function formatCurrency(amount) { 
+                return amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + shopSettings.currency; 
+            }
+
+            function renderCart() {
+                const list = document.getElementById("cart-items-list");
+                const totalEl = document.getElementById("cart-total");
+                const checkoutBtn = document.getElementById("checkout-btn");
+                const emptyState = document.getElementById("empty-state");
+                const cart = StorageManager.get('CART') || [];
+
+                if (cart.length === 0) {
+                    list.innerHTML = ""; totalEl.innerHTML = "";
+                    checkoutBtn.style.display = "none"; emptyState.style.display = "block";
+                    return;
+                }
+
+                emptyState.style.display = "none"; checkoutBtn.style.display = "block";
+                
+                const meta = StorageManager.get("cart_meta") || {};
+                const vatPercent = meta[DB_FIELDS.ORDERS.FIELDS.VAT_PERCENT] !== undefined ? meta[DB_FIELDS.ORDERS.FIELDS.VAT_PERCENT] : shopSettings.vatpercent;
+                
+                let subtotal = cart.reduce((acc, item) => acc + (parseFloat(item.price || 0) * (parseInt(item.qty) || 1)), 0);
+                let vatAmount = subtotal * (vatPercent / 100);
+
+                list.innerHTML = cart.map(item => {
+                    const qty = parseInt(item.qty) || 1;
+                    return `
+                    <div class="cart-item">
+                        ${item[P.IMAGE] ? `<img src="${getFullImageUrl(item[P.IMAGE])}" class="item-img" onerror="this.style.display='none'">` : `<div class="item-img" style="background:#eee;"></div>`}
+                        <div class="item-content">
+                            <div class="item-title">${item[P.TITLE]}</div>
+                            <div class="item-actions">
+                                <div class="qty-controls">
+                                    <button class="qty-btn" onclick="changeQty('${item.id}', -1)">-</button>
+                                    <span class="qty-text">${qty}</span>
+                                    <button class="qty-btn" onclick="changeQty('${item.id}', 1)">+</button>
+                                </div>
+                                <div class="item-price">${formatCurrency(parseFloat(item.price || 0) * qty)}</div>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+
+                totalEl.innerHTML = `
+                    <div class="total-row"><span>Subtotal:</span><span>${formatCurrency(subtotal)}</span></div>
+                    <div class="total-row" style="margin-bottom:15px;"><span>VAT (${vatPercent}%):</span><span>${formatCurrency(vatAmount)}</span></div>
+                    <div class="total-row final-total"><span>Total:</span><span>${formatCurrency(subtotal + vatAmount)}</span></div>
+                `;
+            }
+
+            async function fetchSettings() {
+                try {
+                    const S = DB_FIELDS.SETTINGS;
+                    const shopSnap = await getDoc(doc(db, S.COLLECTION, S.DOC_SHOP));
+                    if (shopSnap.exists()) {
+                        const data = shopSnap.data();
+                        shopSettings.currency = data[S.ACTIVE_CURRENCY]?.symbol || '$';
+                        shopSettings.vatpercent = parseFloat(data[S.VAT_PERCENT]) || 0;
+                        renderCart();
+                    }
+                } catch (e) { console.error("Error fetching settings:", e); }
+                document.body.style.opacity = "1";
+            }
+
+            renderCart();
+            fetchSettings();
+        });
+    </script>
+</body>
+</html>
+

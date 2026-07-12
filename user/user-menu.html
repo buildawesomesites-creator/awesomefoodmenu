@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Menu</title>
+    <style>
+        body { margin: 0; background: #f8f9fa; font-family: sans-serif; padding-top: 70px; padding-bottom: 80px; }
+        
+        #header-container { position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; background: #fff; }
+        
+        #filter-controls {
+            position: sticky;
+            top: 70px;
+            z-index: 999;
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: #fff;
+            border-bottom: 1px solid #eee;
+        }
+
+        #category-select {
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+        }
+
+        .search-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #product-search {
+            width: 100%;
+            padding: 10px 40px 10px 12px;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        #clear-search {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 18px;
+            color: #888;
+            cursor: pointer;
+        }
+
+        #main-content { 
+            display: grid; 
+            grid-template-columns: 1fr; 
+            gap: 15px; 
+            padding: 15px;
+            max-width: 600px; 
+            margin: 0 auto; 
+            scroll-padding-top: 140px;
+        }
+
+        .product-card { background: #fff; border-radius: 20px; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); display: flex; flex-direction: column; overflow: hidden; }
+        .product-img { width: 100%; height: 200px; object-fit: cover; border-radius: 15px; cursor: pointer; }
+        .product-info { padding: 10px 0; }
+        .add-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: #007bff; color: white; font-weight: 900; margin-top: 10px; cursor: pointer; }
+
+        #footer-container { position: fixed; bottom: 0; left: 0; width: 100%; z-index: 1000; background: #fff; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+
+    <div id="filter-controls">
+        <select id="category-select">
+            <option value="All">ALL</option>
+        </select>
+
+        <div class="search-container">
+            <input type="text" id="product-search" placeholder="Search...">
+            <button id="clear-search" onclick="clearSearch()">✕</button>
+        </div>
+    </div>
+
+    <main id="main-content"></main>
+
+    <!-- Floating Cart Bubble -->
+    <div id="floating-cart" style="display: none; position: fixed; bottom: 100px; right: 20px; z-index: 2000; background: #28a745; color: white; width: 60px; height: 60px; border-radius: 50%; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); cursor: pointer;" 
+         onclick="window.location.href='user-cart.html'">
+        <span style="font-size: 24px;">🛒</span>
+        <span id="cart-qty-bubble" style="position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">0</span>
+    </div>
+
+    <div id="footer-container"></div>
+
+    <script type="module">
+        import { injectHeader } from "./user-header.js";
+        import { injectFooter } from "./user-footer.js";
+        import { StorageManager } from "./globaldata.js";
+        import { initUserMenu } from "./user-menu.js";
+        import { refreshCartUI } from "./floating-cart.js";
+
+        // Logic for adding to cart using the new StorageManager
+        window.addToCart = (product) => {
+            let cart = StorageManager.get('CART') || [];
+            const existing = cart.find(item => item.id === product.id);
+            
+            if (existing) {
+                existing.qty = (existing.qty || 1) + 1;
+            } else {
+                product.qty = 1;
+                cart.push(product);
+            }
+            
+            StorageManager.set('CART', cart);
+            refreshCartUI();
+            alert("Added to cart!");
+        };
+
+        async function initApp() {
+            try {
+                injectHeader();
+                injectFooter();
+                initUserMenu();
+                refreshCartUI();
+            } catch (e) { console.error("App initialization failed", e); }
+        }
+
+        initApp();
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>My Orders</title>
+    <style>
+        body { font-family: 'Roboto', sans-serif; padding-bottom: 120px; background: #f8f9fa; margin: 0; font-size: 18px; opacity: 0; transition: opacity 0.3s ease-in; }
+        
+        #header-container { position: fixed; top: 0; width: 100%; z-index: 1001; }
+        .header-section { position: fixed; top: 70px; left: 0; right: 0; background: #f8f9fa; padding: 15px; z-index: 1000; }
+        
+        .tabs { display: flex; gap: 10px; max-width: 500px; margin: auto; margin-bottom: 15px; }
+        .tab-btn { flex: 1; padding: 12px; border: none; border-radius: 12px; cursor: pointer; font-weight: 900; background: #e0e0e0; color: #555; font-size: 1rem; }
+        .tab-btn.active { background: #007bff; color: white; }
+
+        .search-container { max-width: 500px; margin: auto; display: flex; gap: 10px; }
+        #search-input, #date-picker { flex: 1; padding: 14px; border: 2px solid #ddd; border-radius: 12px; font-size: 1rem; }
+        .clear-btn { padding: 14px; border: none; background: #dc3545; color: white; border-radius: 12px; cursor: pointer; font-weight: 900; }
+
+        .content-spacer { height: 180px; } 
+        .container { max-width: 500px; margin: auto; padding: 0 20px; }
+        
+        .card { background: #fff; padding: 25px; border-radius: 20px; margin-bottom: 25px; box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
+        .status-pill { display: inline-block; padding: 8px 20px; border-radius: 30px; font-size: 0.9rem; font-weight: 900; text-transform: uppercase; margin-bottom: 15px; color: #fff; }
+        .status-pending { background: #dc3545; }
+        .status-success { background: #28a745; }
+        
+        .item-row { display: flex; align-items: center; gap: 15px; margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; }
+        .item-img { width: 70px; height: 70px; border-radius: 12px; object-fit: cover; cursor: pointer; }
+        .item-title { font-weight: 900; font-size: 1.1rem; }
+        .price-breakdown { margin-top: 20px; padding-top: 15px; border-top: 2px dashed #ddd; font-size: 1.1rem; font-weight: 700; color: #333; }
+        .btn-action { width: 70%; padding: 14px; border: none; border-radius: 30px; cursor: pointer; font-weight: 900; font-size: 1.1rem; text-align: center; text-decoration: none; display: block; margin: 20px auto 0 auto; color: white; }
+
+        #lightbox { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:none; justify-content:center; align-items:center; z-index:9999; }
+        #lightbox img { max-width: 90%; max-height: 80%; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+    <div id="lightbox" onclick="this.style.display='none'"><img id="lightbox-img" src=""></div>
+    <div id="header-container"></div>
+    <div class="header-section">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="filterOrders('all', this)">All</button>
+            <button class="tab-btn" onclick="filterOrders('pending', this)">Pending</button>
+            <button class="tab-btn" onclick="filterOrders('success', this)">Success</button>
+        </div>
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="Order ID or Invoice #">
+            <input type="date" id="date-picker">
+            <button class="clear-btn" onclick="clearSearch()">X</button>
+        </div>
+    </div>
+
+    <div class="content-spacer"></div>
+
+    <div class="container">
+        <h2>My Orders</h2>
+        <div id="order-list">Loading orders...</div>
+    </div>
+
+    <div id="footer-container"></div>
+
+    <script type="module">
+        import { initAuth } from "./user-guard.js";
+        import { injectHeader } from "./user-header.js";
+        import { injectFooter } from "./user-footer.js";
+        import { db } from "./firebase-config.js";
+        import { DB_FIELDS } from "./globaldata.js";
+        import { collection, onSnapshot, doc, getDoc, query, where, or } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+        window.openLightbox = (src) => {
+            document.getElementById('lightbox-img').src = src;
+            document.getElementById('lightbox').style.display = 'flex';
+        };
+
+        let allOrders = [];
+        let currency = "$";
+        let currentStatus = 'all';
+
+        function renderOrders(orders) {
+            const container = document.getElementById("order-list");
+            document.body.style.opacity = "1";
+            
+            if (!orders || orders.length === 0) { 
+                container.innerHTML = "<p style='text-align:center;'>No orders found.</p>"; 
+                return; 
+            }
+            container.innerHTML = orders.map(o => {
+                const items = o[DB_FIELDS.ORDERS.FIELDS.ITEMS] || [];
+                const cust = o[DB_FIELDS.ORDERS.FIELDS.CUSTOMER] || {};
+                const subtotal = items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.qty || 1)), 0);
+                const discount = Number(o[DB_FIELDS.ORDERS.FIELDS.DISCOUNT] || 0);
+                const netAmount = subtotal - discount;
+                const vat = Number(o[DB_FIELDS.ORDERS.FIELDS.VAT_AMOUNT] || 0);
+                const total = netAmount + vat;
+                const status = o[DB_FIELDS.ORDERS.FIELDS.STATUS] || 'pending';
+                const isSuccess = status === 'success';
+
+                return `
+                <div class="card">
+                    <div class="status-pill ${isSuccess ? 'status-success' : 'status-pending'}">${status}</div>
+                    <div style="font-size:1.1rem; margin-bottom:5px;"><b>Order ID:</b> ${o[DB_FIELDS.ORDERS.FIELDS.ORDER_ID] || 'N/A'}</div>
+                    <div style="margin-bottom:15px; color:#666;">${o[DB_FIELDS.ORDERS.FIELDS.CREATED_AT]?.toDate ? o[DB_FIELDS.ORDERS.FIELDS.CREATED_AT].toDate().toLocaleString() : new Date(o[DB_FIELDS.ORDERS.FIELDS.CREATED_AT] || Date.now()).toLocaleString()}</div>
+                    
+                    <div style="background:#f9f9f9; padding:10px; border-radius:10px; margin-bottom:15px; font-size:0.95rem;">
+                        <div style="font-weight:900; margin-bottom:5px;">Customer Details</div>
+                        <div><b>Name:</b> ${cust[DB_FIELDS.USERS.FIELDS.NAME] || 'N/A'}</div>
+                        <div><b>Email:</b> ${o[DB_FIELDS.ORDERS.FIELDS.USER_EMAIL] || cust[DB_FIELDS.USERS.FIELDS.USER_EMAIL] || 'N/A'}</div>
+                        <div><b>Phone:</b> ${cust[DB_FIELDS.USERS.FIELDS.PHONE] || 'N/A'}</div>
+                        <div><b>Address:</b> ${cust[DB_FIELDS.USERS.FIELDS.ADDRESS] || ''}, ${cust[DB_FIELDS.USERS.FIELDS.CITY] || ''}, ${cust[DB_FIELDS.USERS.FIELDS.COUNTRY] || ''}</div>
+                    </div>
+
+                    ${items.map(item => `
+                        <div class="item-row">
+                            <img src="${item.image || ''}" class="item-img" onclick="window.openLightbox(this.src)" onerror="this.src='placeholder.jpg'">
+                            <div>
+                                <div class="item-title">${item.title}</div>
+                                <div style="font-size: 1rem; color:#444;">Qty: ${item.qty} | ${currency}${Number(item.price || 0).toFixed(2)}</div>
+                            </div>
+                        </div>`).join('')}
+                    <div class="price-breakdown">
+                        <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>${currency}${subtotal.toFixed(2)}</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span>Discount:</span><span>-${currency}${discount.toFixed(2)}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 5px;"><span>Net Amount:</span><span>${currency}${netAmount.toFixed(2)}</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span>VAT:</span><span>${currency}${vat.toFixed(2)}</span></div>
+                        <div style="display:flex; justify-content:space-between; color:#28a745; margin-top: 10px; font-size: 1.3rem;"><span><b>Total:</b></span><span><b>${currency}${total.toFixed(2)}</b></span></div>
+                    </div>
+                    ${isSuccess ? `<a href="view-invoice-user.html?id=${o.id}" class="btn-action" style="background:#28a745;">View Invoice</a>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        window.clearSearch = () => { document.getElementById('search-input').value = ''; document.getElementById('date-picker').value = ''; renderOrders(allOrders); };
+        const performSearch = () => {
+            const q = document.getElementById('search-input').value.toLowerCase();
+            const date = document.getElementById('date-picker').value;
+            let filtered = allOrders.filter(o => (currentStatus === 'all' || (o[DB_FIELDS.ORDERS.FIELDS.STATUS] || 'pending') === currentStatus));
+            if (q) filtered = filtered.filter(o => (o[DB_FIELDS.ORDERS.FIELDS.ORDER_ID] || '').toLowerCase().includes(q) || (o[DB_FIELDS.ORDERS.FIELDS.INVOICE_NUMBER] || '').toLowerCase().includes(q));
+            if (date) filtered = filtered.filter(o => { const d = o[DB_FIELDS.ORDERS.FIELDS.CREATED_AT]?.toDate ? o[DB_FIELDS.ORDERS.FIELDS.CREATED_AT].toDate() : new Date(o[DB_FIELDS.ORDERS.FIELDS.CREATED_AT]); return d.toISOString().split('T')[0] === date; });
+            renderOrders(filtered);
+        };
+        document.getElementById('search-input').addEventListener('input', performSearch);
+        document.getElementById('date-picker').addEventListener('change', performSearch);
+        window.filterOrders = (s, b) => { currentStatus = s; document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active')); b.classList.add('active'); performSearch(); };
+
+        initAuth(true, async (user, userData) => {
+            try {
+                injectHeader(userData); injectFooter();
+                const shopDoc = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP));
+                if (shopDoc.exists()) {
+                    const shopData = shopDoc.data();
+                    const activeCurrency = shopData[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+                    currency = (typeof activeCurrency === 'string') ? activeCurrency : (activeCurrency?.symbol || "$");
+                }
+                
+                const q = query(
+                    collection(db, DB_FIELDS.ORDERS.COLLECTION),
+                    or(
+                        where("customer.uid", "==", user.uid),
+                        where("email", "==", user.email),
+                        where("customer.email", "==", user.email)
+                    )
+                );
+
+                onSnapshot(q, (snap) => {
+                    const map = new Map();
+                    snap.forEach(d => { 
+                        map.set(d.id, { id: d.id, ...d.data() }); 
+                    });
+                    allOrders = Array.from(map.values()).sort((a,b) => (b[DB_FIELDS.ORDERS.FIELDS.CREATED_AT]?.toMillis?.() || 0) - (a[DB_FIELDS.ORDERS.FIELDS.CREATED_AT]?.toMillis?.() || 0));
+                    performSearch(); 
+                }, (err) => {
+                    document.body.style.opacity = "1";
+                });
+            } catch (e) {
+                document.body.style.opacity = "1";
+            }
+        });
+    </script>
+</body>
+</html>
+

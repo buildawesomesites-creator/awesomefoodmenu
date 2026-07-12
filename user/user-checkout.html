@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Checkout</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        html { font-size: 18px; }
+        body { opacity: 0; transition: opacity 0.3s ease; font-family: 'Roboto', sans-serif; padding-bottom: 120px; background: #f8f9fa; margin: 0; }
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .header-spacer { height: 40px; width: 100%; pointer-events: none; }
+        .container { background: #fff; padding: 25px; border-radius: 20px; max-width: 500px; margin: 0 auto 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        h2 { color: #28a745; margin-top: 0; font-size: 28px; font-weight: 900; }
+        h4 { font-size: 20px; margin: 20px 0 15px; color: #333; }
+        .summary-item { display: flex; align-items: center; margin-bottom: 20px; gap: 15px; }
+        .summary-img { width: 80px; height: 80px; border-radius: 16px; object-fit: cover; background: #eee; }
+        .item-details { flex: 1; }
+        .item-title { font-weight: 900; font-size: 1.1rem; }
+        .item-qty { font-size: 0.9rem; color: #666; }
+        .price-bold { font-weight: 900; font-size: 1.1rem; }
+        .total-section { border-top: 2px solid #eee; margin-top: 15px; padding-top: 15px; }
+        .total-row { display: flex; justify-content: space-between; font-weight: 700; font-size: 1rem; margin-bottom: 8px; }
+        .final-total { color: #28a745; font-size: 1.4rem; font-weight: 900; margin-top: 10px; border-top: 2px solid #28a745; padding-top: 10px; }
+        .coupon-box { display: flex; gap: 10px; margin: 20px 0; }
+        input { width: 100%; padding: 15px; border: 2px solid #eee; border-radius: 12px; font-weight: 700; }
+        .btn-apply { padding: 0 20px; background: #333; color: #fff; border: none; border-radius: 12px; cursor: pointer; font-weight: 900; }
+        .btn-clear { padding: 0 20px; background: #fa5252; color: #fff; border: none; border-radius: 12px; cursor: pointer; display: none; }
+        .btn-back { display: block; width: 100%; text-align: center; color: #666; text-decoration: none; margin-top: 15px; font-weight: 700; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+    <div id="footer-container"></div>
+    <div class="header-spacer"></div>
+
+    <div class="container">
+        <h2>Checkout</h2>
+        <div id="order-summary"></div>
+
+        <div class="coupon-box">
+            <input type="text" id="coupon-input" placeholder="Coupon Code">
+            <button class="btn-apply" id="btn-apply" onclick="window.applyCoupon()">Apply</button>
+            <button class="btn-clear" id="btn-clear" onclick="window.clearCoupon()">X</button>
+        </div>
+
+        <h4>Customer Details</h4>
+        <form id="checkout-form">
+            <input type="text" id="full-name" placeholder="Full Name" required>
+            <input type="email" id="email" readonly style="background:#f4f4f4; cursor:not-allowed;">
+            <input type="tel" id="phone" placeholder="Phone Number" required>
+            <input type="text" id="address" placeholder="Address" required>
+            <input type="text" id="city" placeholder="City" required>
+            <input type="text" id="country" placeholder="Country" required>
+            <button type="submit" class="btn-apply" style="width:100%; padding:20px; margin-top:10px;">Confirm & Pay</button>
+        </form>
+        <a href="user-cart.html" class="btn-back">← Back to Menu</a>
+    </div>
+
+    <script type="module">
+        import { initAuth } from "./user-guard.js";
+        import { injectHeader } from "./user-header.js";
+        import { injectFooter } from "./user-footer.js";
+        import { db } from "./firebase-config.js";
+        import { DB_FIELDS, getFullImageUrl, StorageManager, OrderEngine } from "./globaldata.js";
+        import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+        initAuth(true, async (user, userData) => {
+            let cart = StorageManager.get('CART') || [];
+            const cartMeta = StorageManager.get('CART_META') || { vatpercent: 10 };
+            let activeCoupon = null;
+            
+            const U = DB_FIELDS.USERS.FIELDS;
+            const C = DB_FIELDS.COUPONS.FIELDS;
+            const P = DB_FIELDS.PRODUCTS.FIELDS;
+
+            if (cart.length === 0) { window.location.href = "user-menu.html"; return; }
+
+            const render = () => {
+                const orderData = OrderEngine.prepareOrder(cart, activeCoupon, cartMeta.vatpercent);
+                const fin = orderData.financials;
+                
+                let html = `<h4>Order Summary</h4>`;
+                cart.forEach(item => {
+                    const qty = parseInt(item.qty || item.quantity || 1);
+                    html += `<div class="summary-item">
+                        ${item[P.IMAGE] ? `<img src="${getFullImageUrl(item[P.IMAGE])}" class="summary-img">` : `<div class="summary-img" style="background:#eee;"></div>`}
+                        <div class="item-details">
+                            <div class="item-title">${item[P.TITLE] || 'Item'}</div>
+                            <div class="item-qty">Qty: ${qty}</div>
+                        </div>
+                        <div class="price-bold">$${(parseFloat(item.price || 0) * qty).toFixed(2)}</div>
+                    </div>`;
+                });
+
+                html += `<div class="total-section">
+                    <div class="total-row"><span>Subtotal</span><span>$${fin.subtotal}</span></div>
+                    ${activeCoupon ? `
+                        <div class="total-row" style="color:#e67e22;"><span>Discount (${activeCoupon.code})</span><span>-$${fin.discount}</span></div>
+                        <div class="total-row"><span>Net Amount</span><span>$${fin.netAmount}</span></div>
+                    ` : ''}
+                    <div class="total-row"><span>VAT (${cartMeta.vatpercent}%)</span><span>$${fin.vatAmount}</span></div>
+                    <div class="total-row final-total"><span>Total</span><span>$${fin.total}</span></div>
+                </div>`;
+                document.getElementById("order-summary").innerHTML = html;
+            };
+
+            window.applyCoupon = async () => {
+                const code = document.getElementById("coupon-input").value.toUpperCase().trim();
+                const snap = await getDoc(doc(db, DB_FIELDS.COUPONS.COLLECTION, code));
+                if (snap.exists() && snap.data()[C.ACTIVE]) {
+                    activeCoupon = { ...snap.data(), code };
+                    document.getElementById("btn-apply").style.display = "none";
+                    document.getElementById("btn-clear").style.display = "block";
+                    render();
+                } else { alert("Invalid or inactive coupon"); }
+            };
+
+            window.clearCoupon = () => {
+                activeCoupon = null;
+                document.getElementById("btn-apply").style.display = "block";
+                document.getElementById("btn-clear").style.display = "none";
+                render();
+            };
+
+            injectHeader(userData);
+            injectFooter();
+            document.body.style.opacity = "1";
+            document.getElementById("full-name").value = userData[U.NAME] || "";
+            document.getElementById("email").value = userData[U.USER_EMAIL] || user.email || "";
+            document.getElementById("phone").value = userData[U.PHONE] || "";
+            document.getElementById("address").value = userData[U.ADDRESS] || "";
+            document.getElementById("city").value = userData[U.CITY] || "";
+            document.getElementById("country").value = userData[U.COUNTRY] || "Vietnam";
+            render();
+
+            document.getElementById("checkout-form").onsubmit = async (e) => {
+                e.preventDefault();
+                
+                const orderData = OrderEngine.prepareOrder(cart, activeCoupon, cartMeta.vatpercent);
+                const customerData = {
+                    [U.NAME]: document.getElementById("full-name").value,
+                    [U.USER_EMAIL]: document.getElementById("email").value,
+                    [U.PHONE]: document.getElementById("phone").value,
+                    [U.ADDRESS]: document.getElementById("address").value,
+                    [U.CITY]: document.getElementById("city").value,
+                    [U.COUNTRY]: document.getElementById("country").value,
+                    [U.UID]: user.uid
+                };
+
+                OrderEngine.saveToSession(orderData, customerData);
+                StorageManager.setSession('CURRENT_ORDER_ID', "ORD-" + Date.now().toString().slice(-8));
+                
+                await setDoc(doc(db, DB_FIELDS.USERS.COLLECTION, user.uid), customerData, { merge: true });
+                window.location.href = "user-payment.html";
+            };
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>New Page</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+        body { 
+            font-family: 'Roboto', sans-serif; 
+            padding: 120px 20px 100px; 
+            background: #f8f9fa; 
+            margin: 0; 
+            font-size: 16px; 
+            opacity: 0; 
+            transition: opacity 0.3s ease; 
+        }
+        .container { max-width: 400px; margin: auto; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+    <div id="footer-container"></div>
+
+    <div class="container">
+        </div>
+
+    <script type="module">
+        import { initAuth } from "./user-guard.js";
+        import { injectHeader } from "./user-header.js";
+        import { injectFooter } from "./user-footer.js";
+
+        // initAuth handles the security check and returns the user/userData
+        initAuth(true, async (user, userData) => {
+            // 1. Inject components first
+            injectHeader(userData);
+            injectFooter(); // Add page identifier if needed, e.g., injectFooter('home')
+            
+            // 2. Reveal the page once components are synchronized
+            document.body.style.opacity = "1";
+        });
+    </script>
+</body>
+</html>

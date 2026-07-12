@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>User Login</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding: 20px 20px 100px 20px; }
+        
+        .auth-container { background: #fff; padding: 32px 24px; border-radius: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.08); width: 100%; max-width: 400px; text-align: center; margin-top: auto; }
+        
+        #shop-logo { width: 90px; height: 90px; border-radius: 20px; object-fit: cover; margin-bottom: 20px; border: 1px solid #eee; display: none; }
+        .shop-name { color: #007bff; font-size: 1.1rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
+        h2 { color: #1a1a1a; margin: 0 0 25px 0; font-weight: 800; font-size: 1.5rem; }
+        
+        input { width: 100%; padding: 16px; border: 2px solid #f0f0f0; border-radius: 16px; margin: 8px 0; font-size: 16px; background: #fcfcfc; transition: border-color 0.2s; }
+        input:focus { border-color: #007bff; outline: none; background: #fff; }
+        
+        .input-group { position: relative; }
+        .toggle-password { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); cursor: pointer; user-select: none; font-size: 20px; }
+        
+        .remember-me { display: flex; align-items: center; justify-content: flex-start; margin: 10px 0; font-size: 14px; color: #666; cursor: pointer; }
+        .remember-me input { width: auto; margin-right: 10px; }
+
+        button { width: 100%; padding: 16px; margin-top: 15px; background: #007bff; color: #fff; border: none; border-radius: 16px; font-weight: 700; cursor: pointer; font-size: 16px; transition: transform 0.1s, background 0.2s; }
+        button:active { transform: scale(0.98); }
+        button:hover { background: #0056b3; }
+
+        .signup-link { margin-top: 25px; font-size: 14px; color: #666; }
+        .signup-link a { color: #007bff; text-decoration: none; font-weight: 600; }
+        .signup-link a:hover { text-decoration: underline; }
+
+        #toast { visibility: hidden; min-width: 250px; color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; left: 50%; bottom: 100px; transform: translateX(-50%); z-index: 9999; font-weight: 600; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        .success { background: #28a745; }
+        .error { background: #dc3545; }
+        @keyframes fadein { from { bottom: 60px; opacity: 0; } to { bottom: 100px; opacity: 1; } }
+        @keyframes fadeout { from { bottom: 100px; opacity: 1; } to { bottom: 60px; opacity: 0; } }
+        
+        #footer-container { width: 100%; margin-top: auto; }
+    </style>
+</head>
+<body>
+
+<div class="auth-container">
+    <img id="shop-logo" alt="Logo" onerror="this.style.display='none'">
+    <div class="shop-name" id="shop-name-display"></div>
+    <h2>User Login</h2>
+    
+    <input type="email" id="email" placeholder="Email Address" inputmode="email">
+    <div class="input-group">
+        <input type="password" id="password" placeholder="Password">
+        <span class="toggle-password" onclick="togglePassword()">👁️</span>
+    </div>
+
+    <label class="remember-me">
+        <input type="checkbox" id="remember-me" checked> Keep me signed in
+    </label>
+    
+    <button onclick="handleLogin()">Sign In</button>
+
+    <div class="signup-link">
+        Don't have an account? <a href="user-signup.html">Sign up</a>
+    </div>
+</div>
+
+<div id="footer-container"></div>
+<div id="toast"></div>
+
+<script type="module">
+    import { db, auth } from "./firebase-config.js";
+    import { doc, getDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+    import { setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+    import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
+    import { login } from "./auth.js";
+    import { injectFooter } from "./user-footer.js";
+
+    injectFooter();
+
+    function renderUI(name, logo) {
+        document.getElementById("shop-name-display").textContent = name || "Store";
+        const logoEl = document.getElementById("shop-logo");
+        if (logo) {
+            logoEl.src = getFullImageUrl(logo);
+            logoEl.style.display = 'inline-block';
+        }
+    }
+
+    renderUI(localStorage.getItem("shopName"), localStorage.getItem("shopLogo"));
+
+    async function revalidateShopSettings() {
+        try {
+            const settingsRef = doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP);
+            const snap = await getDoc(settingsRef);
+            if (snap.exists()) {
+                const data = snap.data();
+                const freshName = data[DB_FIELDS.SETTINGS.SHOP_NAME];
+                const freshLogo = data[DB_FIELDS.SETTINGS.LOGO_URL];
+                localStorage.setItem("shopName", freshName);
+                localStorage.setItem("shopLogo", freshLogo);
+                renderUI(freshName, freshLogo);
+            }
+        } catch (err) { console.error("Revalidation failed:", err); }
+    }
+    revalidateShopSettings();
+
+    window.togglePassword = () => {
+        const input = document.getElementById("password");
+        const icon = document.querySelector(".toggle-password");
+        const isHidden = input.type === "password";
+        input.type = isHidden ? "text" : "password";
+        icon.textContent = isHidden ? "🙈" : "👁️";
+    };
+
+    function showToast(msg, type) {
+        const toast = document.getElementById("toast");
+        toast.textContent = msg;
+        toast.className = `show ${type}`;
+        setTimeout(() => toast.className = "", 3500);
+    }
+
+    window.handleLogin = async () => {
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+        const rememberMe = document.getElementById("remember-me").checked;
+        
+        if (!email || !password) { showToast("Please fill in all fields", "error"); return; }
+        
+        try {
+            await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+            const result = await login(email, password);
+            
+            if (result.success) {
+                const userDoc = doc(db, "users", result.user.uid);
+                const userSnap = await getDoc(userDoc);
+                
+                if (userSnap.exists()) {
+                    showToast("Login Successful", "success");
+                    setTimeout(() => window.location.href = "user-menu.html", 1000);
+                } else {
+                    showToast("Access Denied: No profile found", "error");
+                }
+            } else {
+                showToast("Login failed: " + result.message, "error");
+            }
+        } catch (err) { 
+            console.error("Auth Error:", err);
+            showToast("Login Error: " + err.message, "error"); 
+        }
+    };
+</script>
+</body>
+</html>
+

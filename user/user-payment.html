@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Complete Payment</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        body { font-family: 'Roboto', sans-serif; background: #f8f9fa; margin: 0; padding: 80px 15px 140px 15px; opacity: 0; transition: opacity 0.3s ease-in; }
+        .container { max-width: 450px; margin: auto; background: #fff; padding: 25px; border-radius: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); margin-bottom: 40px; }
+        h2 { color: #28a745; margin-top: 0; font-size: 28px; font-weight: 900; text-align: center; margin-bottom: 20px; }
+        .section { margin: 15px 0; padding-top: 15px; border-top: 1px solid #eee; }
+        .label { font-weight: 900; color: #888; font-size: 0.75rem; text-transform: uppercase; }
+        .value { font-weight: 800; color: #333; font-size: 1rem; margin-bottom: 5px; word-break: break-all; }
+        .summary-row { display: flex; justify-content: space-between; margin: 8px 0; font-size: 1.05rem; font-weight: 700; color: #444; }
+        .total-row { display: flex; justify-content: space-between; margin-top: 15px; padding-top: 15px; border-top: 2px solid #28a745; font-size: 1.4rem; font-weight: 900; color: #28a745; }
+        #qr-image { width: 100%; max-width: 280px; margin: 25px auto; display: block; border-radius: 20px; border: 4px solid #f8f9fa; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .btn-group { display: flex; gap: 12px; margin-top: 25px; }
+        .btn { flex: 1; padding: 18px; border: none; border-radius: 15px; font-weight: 900; font-size: 16px; cursor: pointer; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; }
+        .btn-green { background: #28a745; color: #fff; }
+        .btn-dark { background: #333; color: #fff; }
+        
+        /* Toast styling with high z-index and padding */
+        #toast { visibility: hidden; min-width: 280px; background-color: #333; color: #fff; text-align: center; border-radius: 12px; padding: 20px; position: fixed; z-index: 9999; left: 50%; bottom: 80px; transform: translateX(-50%); font-weight: 700; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 4.5s; }
+        @keyframes fadein { from {bottom: 50px; opacity: 0;} to {bottom: 80px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 80px; opacity: 1;} to {bottom: 50px; opacity: 0;} }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+    <div id="toast"></div>
+    <div class="container">
+        <h2>Payment</h2>
+        <div id="payment-content">
+            <div id="order-details">Loading details...</div>
+        </div>
+        <img id="qr-image" src="" alt="QR Code">
+        <div class="btn-group">
+            <button id="btn-verify" class="btn btn-green">I have paid</button>
+            <a href="user-checkout.html" class="btn btn-dark">Back</a>
+        </div>
+    </div>
+    <div id="footer-container"></div>
+
+    <script type="module">
+        import { initAuth } from "./user-guard.js";
+        import { injectHeader } from "./user-header.js";
+        import { injectFooter } from "./user-footer.js";
+        import { db } from "./firebase-config.js";
+        import { doc, getDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { DB_FIELDS, StorageManager } from "./globaldata.js";
+        import { submitPayment } from "./user-payment.js";
+
+        initAuth(true, async (user, userData) => {
+            document.body.style.opacity = "1";
+            injectHeader(userData);
+            injectFooter();
+
+            const orderId = StorageManager.getSession('CURRENT_ORDER_ID');
+            const data = StorageManager.getSession('CURRENT_ORDER');
+
+            if (!data) {
+                alert("Order session expired. Redirecting...");
+                window.location.href = "user-checkout.html";
+                return;
+            }
+
+            const fin = data.financials;
+            const cust = data.customer;
+            const coupon = data.coupon || {};
+            
+            const now = new Date();
+            const hh = now.getHours().toString().padStart(2, '0');
+            const mm = now.getMinutes().toString().padStart(2, '0');
+            const dd = now.getDate().toString().padStart(2, '0');
+            const month = (now.getMonth() + 1).toString().padStart(2, '0');
+            const yyyy = now.getFullYear();
+            const formattedDate = `${hh}:${mm}, ${dd}-${month}-${yyyy}`;
+
+            const email = cust[DB_FIELDS.USERS.FIELDS.USER_EMAIL] || "N/A";
+            const fullAddress = `${cust[DB_FIELDS.USERS.FIELDS.ADDRESS] || ""}, ${cust[DB_FIELDS.USERS.FIELDS.CITY] || ""}, ${cust[DB_FIELDS.USERS.FIELDS.COUNTRY] || "Vietnam"}`;
+            
+            document.getElementById("order-details").innerHTML = `
+                <div class="section">
+                    <div class="label">ORDER ID</div><div class="value">${orderId}</div>
+                    <div class="label">DATE</div><div class="value">${formattedDate}</div>
+                    <div class="label">CUSTOMER</div><div class="value">${cust[DB_FIELDS.USERS.FIELDS.NAME]}</div>
+                    <div class="label">EMAIL</div><div class="value">${email}</div>
+                    <div class="label">CONTACT</div><div class="value">${cust[DB_FIELDS.USERS.FIELDS.PHONE]}</div>
+                    <div class="label">SHIPPING TO</div><div class="value">${fullAddress}</div>
+                </div>
+                <div class="section">
+                    <div class="label">SUMMARY</div>
+                    <div class="summary-row"><span>Subtotal:</span><span>$${fin.subtotal}</span></div>
+                    ${coupon.code ? `<div class="summary-row" style="color:#e67e22;"><span>Discount (${coupon.code}):</span><span>-$${fin.discount}</span></div>` : ''}
+                    <div class="summary-row"><span>Net Amount:</span><span>$${fin.netAmount}</span></div>
+                    <div class="summary-row"><span>VAT:</span><span>+$${fin.vatAmount}</span></div>
+                    <div class="total-row"><span>TOTAL:</span><span>$${fin.total}</span></div>
+                </div>
+            `;
+
+            try {
+                const snap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_PAYMENT));
+                if (snap.exists()) {
+                    const p = snap.data();
+                    document.getElementById("qr-image").src = `https://img.vietqr.io/image/${p.bank_bin}-${p.account_number}-compact2.png?amount=${Math.round(fin.total)}&addInfo=${orderId}`;
+                }
+            } catch (e) { console.error("QR Load Error:", e); }
+
+            document.getElementById("btn-verify").onclick = async () => {
+                const btn = document.getElementById("btn-verify");
+                btn.disabled = true;
+                btn.innerText = "Processing...";
+
+                const success = await submitPayment(orderId, data);
+                if (success) {
+                    const toast = document.getElementById("toast");
+                    toast.innerText = "Payment submitted successfully!";
+                    toast.className = "show";
+                    setTimeout(() => window.location.href = "user-order.html", 2000);
+                } else {
+                    btn.disabled = false;
+                    btn.innerText = "I have paid";
+                    alert("Submission failed. Please try again.");
+                }
+            };
+        });
+    </script>
+</body>
+</html>
+
