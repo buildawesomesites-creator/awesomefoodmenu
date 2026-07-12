@@ -5,8 +5,9 @@
     <title>Redirecting...</title>
     <script>
         const targetPath = "user/user-menu.html";
-        const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, "");
-        window.location.replace(baseUrl + "/" + targetPath);
+        // Directly append the target path to the current origin and path
+        // This keeps it relative to your root repository directory
+        window.location.replace(window.location.href.split('?')[0].replace(/\/$/, "") + "/" + targetPath);
     </script>
 </head>
 <body>
