@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Redirecting...</title>
+    <script>
+        const targetUrl = "user/user-menu.html";
+        window.location.replace(targetUrl);
+    </script>
+</head>
+<body>
+    <p>Redirecting to <script>document.write(targetUrl);</script>...</p>
+</body>
+</html>
