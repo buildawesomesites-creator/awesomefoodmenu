@@ -1,22 +1,56 @@
-
 import { db } from "./firebase-config.js";
-import { collection, onSnapshot, query, orderBy, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { collection, getDocs, query, orderBy, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 import { DB_FIELDS, getFullImageUrl, StorageManager } from "./globaldata.js";
 import { refreshCartUI } from "./floating-cart.js";
 
 let allProducts = [];
 let attrConfig = [];
-let categoryList = []; // Added to store the canonical order
+let categoryList = [];
 const P = DB_FIELDS.PRODUCTS.FIELDS;
 
+// Simple cache structure for SWR-like behavior in vanilla JS
+let cache = { data: null, lastFetched: 0 };
+const CACHE_DURATION = 60000; // 60 seconds
+
+async function fetchProducts() {
+    const q = query(collection(db, DB_FIELDS.PRODUCTS.COLLECTION), orderBy(P.UPDATED_AT, "desc"));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+async function getCachedProducts() {
+    const now = Date.now();
+    if (cache.data && (now - cache.lastFetched < CACHE_DURATION)) {
+        return cache.data;
+    }
+    const products = await fetchProducts();
+    cache = { data: products, lastFetched: now };
+    return products;
+}
+
 export async function initUserMenu() {
-    await fetchAttrConfig();
-    await initCategories();
-    
+    // Start all requests together
+    const productsPromise = getCachedProducts();
+    const attrsPromise = fetchAttrConfig();
+    const categoriesPromise = initCategories();
+
     const searchInput = document.getElementById("product-search");
     if (searchInput) {
         searchInput.addEventListener("input", filterAndRender);
     }
+
+    // Wait only for products
+    allProducts = await productsPromise;
+    filterAndRender();
+
+    // Wait for optional data
+    await Promise.allSettled([
+        attrsPromise,
+        categoriesPromise
+    ]);
+
+    // Refresh once categories/attributes are ready
+    filterAndRender();
 
     window.addEventListener("scroll", () => {
         const search = document.getElementById("product-search")?.value.trim();
@@ -24,22 +58,18 @@ export async function initUserMenu() {
 
         const sections = document.querySelectorAll(".category-section");
         let currentCat = "All";
+
         sections.forEach(section => {
             const rect = section.getBoundingClientRect();
             if (rect.top <= 140) {
                 currentCat = section.getAttribute("data-category");
             }
         });
+
         const catSelect = document.getElementById("category-select");
         if (catSelect && catSelect.value !== currentCat) {
             catSelect.value = currentCat;
         }
-    });
-
-    const q = query(collection(db, DB_FIELDS.PRODUCTS.COLLECTION), orderBy(P.UPDATED_AT, "desc"));
-    onSnapshot(q, (snapshot) => {
-        allProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        filterAndRender();
     });
 }
 
@@ -96,10 +126,7 @@ async function initCategories() {
             const section = document.querySelector(`.category-section[data-category="${val}"]`);
             if (section) {
                 const y = section.getBoundingClientRect().top + window.pageYOffset - 140;
-                window.scrollTo({
-                    top: y,
-                    behavior: "smooth"
-                });
+                window.scrollTo({ top: y, behavior: "smooth" });
             }
         }
     });
@@ -131,7 +158,6 @@ function renderView(products) {
         return acc;
     }, {});
 
-    // Sort categories based on categoryList order, keeping Uncategorized at the end
     const sortedCategories = [...categoryList];
     const uncategorized = Object.keys(grouped).filter(c => !categoryList.includes(c));
     const finalOrder = [...sortedCategories, ...uncategorized].filter(c => grouped[c]);
@@ -197,3 +223,4 @@ window.openLightbox = (src) => {
     }
     lb.innerHTML = `<img src="${src}" style="max-width:90%; max-height:80%; border-radius:10px;">`;
 };
+

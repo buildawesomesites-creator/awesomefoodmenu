@@ -96,6 +96,7 @@
     <div id="footer-container"></div>
 
     <script type="module">
+        import { initAuth } from "./user-guard.js";
         import { injectHeader } from "./user-header.js";
         import { injectFooter } from "./user-footer.js";
         import { StorageManager } from "./globaldata.js";
@@ -121,7 +122,12 @@
 
         async function initApp() {
             try {
-                injectHeader();
+                // isProtected is false so guests can view the menu.
+                // initAuth will fetch userData if logged in, otherwise null.
+                initAuth(false, async (user, userData) => {
+                    await injectHeader(userData);
+                });
+                
                 injectFooter();
                 initUserMenu();
                 refreshCartUI();
