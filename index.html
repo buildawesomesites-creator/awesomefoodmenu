@@ -4,12 +4,11 @@
     <meta charset="UTF-8">
     <title>Redirecting...</title>
     <script>
-        window.location.replace("
-                                https://awesomefoodmenu.web.app/user/user-menu.html
-                                ");
+        const targetUrl = "user/user-menu.html";
+        window.location.replace(targetUrl);
     </script>
 </head>
 <body>
-    <p>Redirecting...</p>
+    <p>Redirecting to <script>document.write(targetUrl);</script>...</p>
 </body>
 </html>
