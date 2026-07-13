@@ -6,11 +6,11 @@ import { refreshCartUI } from "./floating-cart.js";
 let allProducts = [];
 let attrConfig = [];
 let categoryList = [];
+let activeCurrency = "$"; // Default
 const P = DB_FIELDS.PRODUCTS.FIELDS;
 
-// Simple cache structure for SWR-like behavior in vanilla JS
 let cache = { data: null, lastFetched: 0 };
-const CACHE_DURATION = 60000; // 60 seconds
+const CACHE_DURATION = 60000;
 
 async function fetchProducts() {
     const q = query(collection(db, DB_FIELDS.PRODUCTS.COLLECTION), orderBy(P.UPDATED_AT, "desc"));
@@ -20,71 +20,60 @@ async function fetchProducts() {
 
 async function getCachedProducts() {
     const now = Date.now();
-    if (cache.data && (now - cache.lastFetched < CACHE_DURATION)) {
-        return cache.data;
-    }
+    if (cache.data && (now - cache.lastFetched < CACHE_DURATION)) return cache.data;
     const products = await fetchProducts();
     cache = { data: products, lastFetched: now };
     return products;
 }
 
+async function loadCurrency() {
+    try {
+        const snap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP));
+        if (snap.exists()) {
+            const data = snap.data();
+            // Handle if the field is an object or a string
+            const val = data[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+            activeCurrency = (typeof val === 'object' && val !== null) ? (val.symbol || '$') : (val || '$');
+        }
+    } catch (e) { console.error("Currency fetch failed", e); }
+}
+
 export async function initUserMenu() {
-    // Start all requests together
+    await loadCurrency(); 
     const productsPromise = getCachedProducts();
     const attrsPromise = fetchAttrConfig();
     const categoriesPromise = initCategories();
 
     const searchInput = document.getElementById("product-search");
-    if (searchInput) {
-        searchInput.addEventListener("input", filterAndRender);
-    }
+    if (searchInput) searchInput.addEventListener("input", filterAndRender);
 
-    // Wait only for products
     allProducts = await productsPromise;
     filterAndRender();
 
-    // Wait for optional data
-    await Promise.allSettled([
-        attrsPromise,
-        categoriesPromise
-    ]);
-
-    // Refresh once categories/attributes are ready
+    await Promise.allSettled([attrsPromise, categoriesPromise]);
     filterAndRender();
 
     window.addEventListener("scroll", () => {
         const search = document.getElementById("product-search")?.value.trim();
         if (search) return;
-
         const sections = document.querySelectorAll(".category-section");
         let currentCat = "All";
-
         sections.forEach(section => {
-            const rect = section.getBoundingClientRect();
-            if (rect.top <= 140) {
-                currentCat = section.getAttribute("data-category");
-            }
+            if (section.getBoundingClientRect().top <= 140) currentCat = section.getAttribute("data-category");
         });
-
         const catSelect = document.getElementById("category-select");
-        if (catSelect && catSelect.value !== currentCat) {
-            catSelect.value = currentCat;
-        }
+        if (catSelect && catSelect.value !== currentCat) catSelect.value = currentCat;
     });
 }
 
 window.clearSearch = () => {
     const input = document.getElementById("product-search");
-    if (input) {
-        input.value = "";
-        filterAndRender();
-    }
+    if (input) { input.value = ""; filterAndRender(); }
 };
 
 window.updateQty = (id, change) => {
     let cart = StorageManager.get('CART') || [];
     let item = cart.find(i => i.id === id);
-
     if (item) {
         item.qty = (item.qty || 0) + change;
         if (item.qty <= 0) cart = cart.filter(i => i.id !== id);
@@ -92,7 +81,6 @@ window.updateQty = (id, change) => {
         const product = allProducts.find(p => p.id === id);
         if (product) cart.push({ ...product, qty: 1 });
     }
-
     StorageManager.set('CART', cart);
     refreshCartUI();
     filterAndRender();
@@ -108,7 +96,6 @@ async function fetchAttrConfig() {
 async function initCategories() {
     const catSelect = document.getElementById("category-select");
     if (!catSelect) return;
-    
     try {
         const snap = await getDoc(doc(db, DB_FIELDS.CATEGORIES.COLLECTION, DB_FIELDS.CATEGORIES.DOC_CATEGORIES));
         if (snap.exists()) {
@@ -117,25 +104,11 @@ async function initCategories() {
                 categoryList.map(c => `<option value="${c}">${c.toUpperCase()}</option>`).join('');
         }
     } catch (e) { console.error("Cat fetch failed", e); }
-
-    catSelect.addEventListener("change", () => {
-        const val = catSelect.value;
-        if (val === "All") {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        } else {
-            const section = document.querySelector(`.category-section[data-category="${val}"]`);
-            if (section) {
-                const y = section.getBoundingClientRect().top + window.pageYOffset - 140;
-                window.scrollTo({ top: y, behavior: "smooth" });
-            }
-        }
-    });
 }
 
 function filterAndRender() {
     const searchTerm = document.getElementById("product-search")?.value.toLowerCase() || "";
     let filtered = allProducts;
-    
     if (searchTerm) {
         filtered = filtered.filter(p => 
             (p[P.TITLE] || "").toLowerCase().includes(searchTerm) || 
@@ -150,6 +123,7 @@ function renderView(products) {
     if (!container) return;
 
     const cart = StorageManager.get('CART') || [];
+    const symbol = activeCurrency;
     
     const grouped = products.reduce((acc, p) => {
         const cat = p[P.CATEGORY] || "Uncategorized";
@@ -169,20 +143,23 @@ function renderView(products) {
                 const cartItem = cart.find(i => i.id === p.id);
                 const qty = cartItem ? cartItem.qty : 0;
                 const attrs = Array.isArray(p[P.ATTRIBUTES]) ? p[P.ATTRIBUTES] : [];
-                const price = parseFloat(p[P.PRICE] || 0);
-                const discount = parseFloat(p[P.DISCOUNT_PRICE] || 0);
+                
+                // FORCE NUMBER CONVERSION
+                const price = parseFloat(p[P.PRICE]) || 0;
+                const discount = parseFloat(p[P.DISCOUNT_PRICE]) || 0;
 
                 const priceDisplay = (discount > 0 && discount < price) 
                     ? `<div style="display: flex; align-items: baseline; gap: 8px; margin: 8px 0;">
-                         <span style="text-decoration: line-through; color: #b2bec3; font-weight: 800;">${price} $</span>
-                         <span style="color: #ff4757; font-weight: 900; font-size: 20px;">${discount} $</span>
+                         <span style="text-decoration: line-through; color: #b2bec3; font-weight: 800;">${symbol}&nbsp;${price.toFixed(2)}</span>
+                         <span style="color: #ff4757; font-weight: 900; font-size: 20px;">${symbol}&nbsp;${discount.toFixed(2)}</span>
                        </div>`
-                    : `<div style="margin: 8px 0;"><span style="font-weight: 900; font-size: 20px;">${price} $</span></div>`;
+                    : `<div style="margin: 8px 0;"><span style="font-weight: 900; font-size: 20px;">${symbol}&nbsp;${price.toFixed(2)}</span></div>`;
 
                 const attrHtml = attrs.map(a => {
-                    const config = attrConfig.find(c => c.name === a) || { icon: '●', color: '#636e72' };
+                    const attrName = (typeof a === 'object' && a !== null) ? (a.name || '') : a;
+                    const config = attrConfig.find(c => c.name === attrName) || { icon: '●', color: '#636e72' };
                     return `<span style="border: 1px solid ${config.color}; color: ${config.color}; padding: 3px 10px; border-radius: 8px; font-size: 12px; font-weight: 900; margin-right: 6px; display:inline-flex; align-items:center; gap:4px;">
-                                ${config.icon} ${a}
+                                ${config.icon} ${attrName}
                             </span>`;
                 }).join('');
 

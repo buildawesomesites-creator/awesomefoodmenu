@@ -20,7 +20,6 @@
         .btn-green { background: #28a745; color: #fff; }
         .btn-dark { background: #333; color: #fff; }
         
-        /* Toast styling with high z-index and padding */
         #toast { visibility: hidden; min-width: 280px; background-color: #333; color: #fff; text-align: center; border-radius: 12px; padding: 20px; position: fixed; z-index: 9999; left: 50%; bottom: 80px; transform: translateX(-50%); font-weight: 700; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 4.5s; }
         @keyframes fadein { from {bottom: 50px; opacity: 0;} to {bottom: 80px; opacity: 1;} }
@@ -67,6 +66,15 @@
                 return;
             }
 
+            let activeCurrency = "$";
+            try {
+                const snap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP));
+                if (snap.exists()) {
+                    const val = snap.data()[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+                    activeCurrency = (typeof val === 'object' && val !== null) ? (val.symbol || '$') : (val || '$');
+                }
+            } catch (e) { console.error("Currency load failed", e); }
+
             const fin = data.financials;
             const cust = data.customer;
             const coupon = data.coupon || {};
@@ -93,11 +101,11 @@
                 </div>
                 <div class="section">
                     <div class="label">SUMMARY</div>
-                    <div class="summary-row"><span>Subtotal:</span><span>$${fin.subtotal}</span></div>
-                    ${coupon.code ? `<div class="summary-row" style="color:#e67e22;"><span>Discount (${coupon.code}):</span><span>-$${fin.discount}</span></div>` : ''}
-                    <div class="summary-row"><span>Net Amount:</span><span>$${fin.netAmount}</span></div>
-                    <div class="summary-row"><span>VAT:</span><span>+$${fin.vatAmount}</span></div>
-                    <div class="total-row"><span>TOTAL:</span><span>$${fin.total}</span></div>
+                    <div class="summary-row"><span>Subtotal:</span><span>${activeCurrency}${fin.subtotal}</span></div>
+                    ${coupon.code ? `<div class="summary-row" style="color:#e67e22;"><span>Discount (${coupon.code}):</span><span>-${activeCurrency}${fin.discount}</span></div>` : ''}
+                    <div class="summary-row"><span>Net Amount:</span><span>${activeCurrency}${fin.netAmount}</span></div>
+                    <div class="summary-row"><span>VAT:</span><span>+${activeCurrency}${fin.vatAmount}</span></div>
+                    <div class="total-row"><span>TOTAL:</span><span>${activeCurrency}${fin.total}</span></div>
                 </div>
             `;
 

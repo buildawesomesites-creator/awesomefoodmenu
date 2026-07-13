@@ -39,14 +39,10 @@ export async function injectHeader(userData) {
                     ${userBtnText}
                 </button>
                 <button id="head-signout" style="
-                    display: ${signoutDisplay};
-                    background: transparent;
-                    border: none;
-                    padding: 0;
-                    cursor: pointer;">
-                    <img src="/icon/logout.png"
-                         alt="Sign Out"
-                         style="width:32px;height:32px;display:block;">
+                    display: ${signoutDisplay}; background: #ff4757; color: #fff; border: none; 
+                    padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 13px; 
+                    font-weight: 900; text-transform: uppercase; white-space: nowrap; box-shadow: 0 4px 10px rgba(255, 71, 87, 0.2);">
+                    Sign Out
                 </button>
             </div>
         </header>
@@ -55,8 +51,7 @@ export async function injectHeader(userData) {
     document.body.style.paddingTop = "70px";
 
     if (userData) {
-        document.getElementById('head-signout').onclick = () =>
-            signOut(auth).then(() => location.href = "user-login.html");
+        document.getElementById('head-signout').onclick = () => signOut(auth).then(() => location.href = "user-login.html");
     }
 
     const cachedShop = localStorage.getItem('cache_shop');
@@ -86,3 +81,4 @@ function updateShopUI(sData) {
         logoEl.style.display = 'block';
     }
 }
+

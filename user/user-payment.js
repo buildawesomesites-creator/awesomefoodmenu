@@ -1,4 +1,4 @@
-import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 import { db } from "./firebase-config.js";
 import { getFullImageUrl, STORAGE_KEYS, DB_FIELDS, StorageManager } from "./globaldata.js";
 
@@ -15,6 +15,17 @@ export async function submitPayment(orderId, orderData) {
     const O = DB_FIELDS.ORDERS.FIELDS;
     const U = DB_FIELDS.USERS.FIELDS;
     const P = DB_FIELDS.PRODUCTS.FIELDS;
+
+    // Fetch dynamic currency symbol
+    let activeCurrency = "$";
+    try {
+        const snap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP));
+        if (snap.exists()) {
+            const data = snap.data();
+            const val = data[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+            activeCurrency = (typeof val === 'object' && val !== null) ? (val.symbol || '$') : (val || '$');
+        }
+    } catch (e) { console.error("Currency load failed in payment", e); }
 
     const now = new Date();
     const ddmmyyss = `${now.getDate().toString().padStart(2, '0')}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getFullYear().toString().slice(-2)}${now.getSeconds().toString().padStart(2, '0')}`;
@@ -45,6 +56,7 @@ export async function submitPayment(orderId, orderData) {
             [O.CREATED_AT]: serverTimestamp(),
             [O.INVOICE_NUMBER]: ddmmyyss,
             [O.INVOICE_DATE]: now.toISOString(),
+            [O.CURRENCY]: activeCurrency, // Saving the currency used
             [O.SUBTOTAL]: parseFloat(orderData.financials.subtotal || 0),
             [O.DISCOUNT]: parseFloat(orderData.financials.discount || 0),
             [O.NET_AMOUNT]: parseFloat(orderData.financials.netAmount || 0),
@@ -56,7 +68,7 @@ export async function submitPayment(orderId, orderData) {
             [O.CUSTOMER]: {
                 [U.UID]: orderData.customer[U.UID] || orderData.customer.uid || "",
                 [U.NAME]: orderData.customer[U.NAME] || orderData.customer.name || "",
-                [U.USER_EMAIL]: emailToSave, // Added email here
+                [U.USER_EMAIL]: emailToSave,
                 [U.PHONE]: orderData.customer[U.PHONE] || orderData.customer.phone || "",
                 [U.ADDRESS]: orderData.customer[U.ADDRESS] || orderData.customer.address || "",
                 [U.CITY]: orderData.customer[U.CITY] || orderData.customer.city || "",
