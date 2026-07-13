@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Import</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { 
+            margin: 0; padding: 0; padding-top: 70px; 
+            min-height: 100vh; background: #f8f9fa; 
+            display: flex; flex-direction: column;
+        }
+        
+        #header-container { flex: 0 0 auto; z-index: 1000; }
+        #content-container { flex: 1; width: 100%; max-width: 600px; margin: 0 auto; padding: 20px; }
+        #footer-container { flex: 0 0 auto; }
+
+        .csv-card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 250px; margin-bottom: 10px; font-family: monospace; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+        button { width: 100%; padding: 15px; background: #00b894; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; margin-bottom: 10px; }
+        
+        #progress-container { width: 100%; background: #eee; height: 10px; border-radius: 5px; margin: 15px 0; display: none; overflow: hidden; }
+        #progress-bar { width: 0%; height: 100%; background: #00b894; transition: width 0.3s; }
+        #status-log { margin-top: 15px; padding: 10px; background: #eee; border-radius: 8px; font-size: 13px; color: #2d3436; }
+        
+        #view-menu-btn { display: none; background: #0984e3; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+
+    <div id="content-container">
+        <h2>Bulk Import</h2>
+        <div class="csv-card">
+            <textarea id="bulk-json" placeholder="id,title,price,discountprice,stock,category,attributes,tags,image,description"></textarea>
+            <button id="import-btn">Process Import & Sync Masters</button>
+            <button id="view-menu-btn" onclick="window.location.href='admin-product-dashboard.html'">View Updated Menu</button>
+            <div id="progress-container"><div id="progress-bar"></div></div>
+        </div>
+        <div id="status-log">Ready...</div>
+    </div>
+
+    <div id="footer-container"></div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        import { db } from "./firebase-config.js";
+        import { DB_FIELDS } from "./globaldata.js";
+        import { doc, getDoc, setDoc, addDoc, collection, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+        async function init() {
+            await Promise.all([injectHeader(), injectFooter('admin')]);
+        }
+        init();
+
+        function parseCSVLine(text) {
+            const result = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < text.length; i++) {
+                let char = text[i];
+                if (char === '"') inQuotes = !inQuotes;
+                else if (char === ',' && !inQuotes) { result.push(cur.trim()); cur = ''; }
+                else cur += char;
+            }
+            result.push(cur.trim());
+            return result;
+        }
+
+        function csvToJson(csv) {
+            const lines = csv.trim().split('\n').filter(l => l.trim() !== "");
+            const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+            
+            return lines.slice(1).map(line => {
+                const values = parseCSVLine(line);
+                let obj = {};
+                
+                headers.forEach((h, i) => {
+                    const val = values[i] || "";
+                    
+                    if (h === 'attributes' || h === 'tags') {
+                        obj[DB_FIELDS.PRODUCTS.FIELDS[h.toUpperCase()]] = val ? val.split('|').map(x => x.trim()) : [];
+                    } else if (h === 'price') {
+                        obj[DB_FIELDS.PRODUCTS.FIELDS.PRICE] = parseFloat(val) || 0;
+                    } else if (h === 'discountprice') {
+                        obj[DB_FIELDS.PRODUCTS.FIELDS.DISCOUNT_PRICE] = parseFloat(val) || 0;
+                    } else if (h === 'stock') {
+                        obj[DB_FIELDS.PRODUCTS.FIELDS.STOCK] = parseInt(val) || 0;
+                    } else {
+                        const fieldKey = Object.keys(DB_FIELDS.PRODUCTS.FIELDS).find(key => DB_FIELDS.PRODUCTS.FIELDS[key] === h);
+                        if (fieldKey) {
+                            obj[DB_FIELDS.PRODUCTS.FIELDS[fieldKey]] = val;
+                        } else {
+                            obj[h] = val;
+                        }
+                    }
+                });
+                return obj;
+            });
+        }
+
+        document.getElementById('import-btn').onclick = async () => {
+            const log = document.getElementById('status-log');
+            const progCont = document.getElementById('progress-container');
+            const progBar = document.getElementById('progress-bar');
+            const viewBtn = document.getElementById('view-menu-btn');
+            const raw = document.getElementById('bulk-json').value.trim();
+            
+            if (!raw) return alert("Please paste CSV data!");
+
+            try {
+                progCont.style.display = 'block';
+                viewBtn.style.display = 'none';
+                log.innerText = "Parsing data...";
+                const products = csvToJson(raw);
+                const total = products.length;
+                
+                const catRef = doc(db, DB_FIELDS.CATEGORIES.COLLECTION, DB_FIELDS.CATEGORIES.DOC_CATEGORIES);
+                let masterCats = (await getDoc(catRef)).data()?.[DB_FIELDS.CATEGORIES.FIELDS.LIST] || [];
+
+                const attrRef = doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES);
+                let masterAttrs = (await getDoc(attrRef)).data()?.[DB_FIELDS.SETTINGS.FIELD_ATTRIBUTES_LIST] || [];
+                
+                const existingTags = (await getDocs(collection(db, DB_FIELDS.TAGS.COLLECTION))).docs.map(d => d.data()[DB_FIELDS.TAGS.FIELDS.NAME]);
+
+                for (let i = 0; i < total; i++) {
+                    const p = products[i];
+                    const id = p[DB_FIELDS.PRODUCTS.FIELDS.ID] || "PROD_" + Date.now();
+                    
+                    await setDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, id), { 
+                        ...p, 
+                        [DB_FIELDS.PRODUCTS.FIELDS.UPDATED_AT]: serverTimestamp() 
+                    });
+
+                    if (p[DB_FIELDS.PRODUCTS.FIELDS.CATEGORY] && !masterCats.includes(p[DB_FIELDS.PRODUCTS.FIELDS.CATEGORY])) {
+                        masterCats.push(p[DB_FIELDS.PRODUCTS.FIELDS.CATEGORY]);
+                        await setDoc(catRef, { [DB_FIELDS.CATEGORIES.FIELDS.LIST]: masterCats });
+                    }
+
+                    if (p[DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]) {
+                        let attrUpdated = false;
+                        for (const attrName of p[DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]) {
+                            if (!masterAttrs.find(a => a.name === attrName)) {
+                                masterAttrs.push({ name: attrName, color: "#636e72", icon: "🟢" });
+                                attrUpdated = true;
+                            }
+                        }
+                        if (attrUpdated) await setDoc(attrRef, { [DB_FIELDS.SETTINGS.FIELD_ATTRIBUTES_LIST]: masterAttrs });
+                    }
+
+                    if (p[DB_FIELDS.PRODUCTS.FIELDS.TAGS]) {
+                        for (const t of p[DB_FIELDS.PRODUCTS.FIELDS.TAGS]) {
+                            if (!existingTags.includes(t)) {
+                                await addDoc(collection(db, DB_FIELDS.TAGS.COLLECTION), { 
+                                    [DB_FIELDS.TAGS.FIELDS.NAME]: t, 
+                                    [DB_FIELDS.TAGS.FIELDS.CREATED_AT]: serverTimestamp() 
+                                });
+                                existingTags.push(t);
+                            }
+                        }
+                    }
+                    
+                    const percent = ((i + 1) / total) * 100;
+                    progBar.style.width = percent + "%";
+                    log.innerText = `Processing: ${i + 1} / ${total} products...`;
+                }
+                
+                log.innerText = `Success! Imported ${total} products.`;
+                viewBtn.style.display = 'block';
+            } catch (e) {
+                log.innerText = "Error: " + e.message;
+                console.error(e);
+            }
+        };
+    </script>
+</body>
+</html>

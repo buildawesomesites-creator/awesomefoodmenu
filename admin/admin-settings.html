@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Admin Settings</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        
+        /* Layout Structure */
+        body { 
+            background: #ffffff; 
+            margin: 0; 
+            padding-top: 80px;  /* Space for fixed header */
+            padding-bottom: 90px; /* Space for fixed footer */
+        }
+        .container { 
+            max-width: 500px; 
+            margin: auto; 
+            padding: 0 20px; 
+        }
+
+        h2 { color: #1c1e21; margin-bottom: 20px; }
+
+        /* 2x2 Grid Actions */
+        .action-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .btn-action {
+            padding: 20px; border: none; border-radius: 16px;
+            font-weight: 900; text-align: center; text-decoration: none;
+            display: flex; flex-direction: column; align-items: center;
+            gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            cursor: pointer; color: #333;
+        }
+        .btn-action span { font-size: 30px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Settings</h2>
+        
+        <div class="action-grid">
+            <button class="btn-action" style="background:#fff3e0;" onclick="location.href='all-buyers.html'">
+                <span>🛒</span> All Users
+            </button>
+            <button class="btn-action" style="background:#e8f5e9;" onclick="location.href='manage-staff.html'">
+                <span>👥</span> Manage Staff
+            </button>
+            <button class="btn-action" style="background:#f3e5f5;" onclick="location.href='admin-shop-settings.html'">
+                <span>⚙️</span> Shop Settings
+            </button>
+            <button class="btn-action" style="background:#ffebee;" onclick="location.href='delete-orders.html'">
+                <span>🗑️</span> Delete Orders
+            </button>
+            <button class="btn-action" style="background:#fffde7;" onclick="location.href='backup-management-admin.html'">
+                <span>☁️</span> Cloud Backup
+            </button>
+            <button class="btn-action" style="background:#e3f2fd;" onclick="location.href='change-password.html'">
+                <span>🔑</span> Change Password
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+
+        // Initialize UI components
+        injectHeader();
+        // Replace 'settings' with the identifier of the current page
+        injectFooter('settings'); 
+    </script>
+</body>
+</html>
+

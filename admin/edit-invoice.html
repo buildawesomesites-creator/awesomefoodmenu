@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Edit Invoice</title>
+    <style>
+        body { font-family: sans-serif; padding: 10px; background: #f8f9fa; color: #333; margin-bottom: 160px; }
+        .card { background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .label { font-weight: bold; color: #000; margin-bottom: 8px; display: block; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        input { border: 1px solid #ccc; padding: 8px; border-radius: 5px; width: 60%; }
+        .product-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .btn { padding: 10px; border: none; border-radius: 8px; cursor: pointer; color: white; font-weight: bold; text-decoration: none; display: block; text-align: center; }
+        .footer { position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div id="invoice-body">Loading...</div>
+    <div class="footer">
+        <button class="btn" style="background:#28a745;" onclick="saveChanges()">Save Changes</button>
+        <a href="view-invoice.html?id=" id="view-link" class="btn" style="background:#17a2b8;">View Invoice</a>
+        <button class="btn" style="background:#dc3545;" onclick="window.history.back()">Back</button>
+    </div>
+
+    <script type="module">
+        import { db } from "./firebase-config.js";
+        import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
+        import { doc, getDoc, getDocs, collection, updateDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+        const orderId = new URLSearchParams(window.location.search).get('id');
+        let orderData, allProducts, shopData, currency;
+
+        async function init() {
+            try {
+                document.getElementById('view-link').href = "view-invoice.html?id=" + orderId;
+                const [oSnap, pSnap, sSnap] = await Promise.all([
+                    getDoc(doc(db, DB_FIELDS.ORDERS.COLLECTION, orderId)),
+                    getDocs(collection(db, DB_FIELDS.PRODUCTS.COLLECTION)),
+                    getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP))
+                ]);
+                orderData = oSnap.data();
+                allProducts = pSnap.docs.map(d => ({id: d.id, ...d.data()}));
+                shopData = sSnap.data();
+                
+                const currRaw = shopData[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+                currency = (typeof currRaw === 'object' && currRaw !== null) ? (currRaw.symbol || currRaw.code || "") : currRaw;
+                
+                render();
+            } catch (e) { document.body.innerHTML = "Error: " + e.message; }
+        }
+
+        window.calculateSummary = () => {
+            const items = orderData[DB_FIELDS.ORDERS.FIELDS.ITEMS] || [];
+            const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * Number(item.qty || 0)), 0);
+            const discount = parseFloat(document.getElementById('f-disc')?.value || 0);
+            const vatPercent = parseFloat(document.getElementById('f-vat')?.value || 0);
+            
+            const netAmount = Math.max(0, subtotal - discount);
+            const vatAmount = netAmount * (vatPercent / 100);
+            const total = netAmount + vatAmount;
+
+            const couponObj = orderData[DB_FIELDS.ORDERS.FIELDS.COUPON];
+            const couponCode = (couponObj && typeof couponObj === 'object') ? (couponObj.code || "") : (couponObj || "");
+            const labelText = couponCode ? `Discount (${couponCode})` : "Discount";
+
+            document.getElementById('sum-sub').innerText = subtotal.toFixed(2) + " " + currency;
+            document.getElementById('sum-label-disc').innerText = labelText;
+            document.getElementById('sum-disc').innerText = "-" + discount.toFixed(2) + " " + currency;
+            
+            // Dynamic VAT label update
+            document.getElementById('sum-label-vat').innerText = `VAT Amount (${vatPercent}%)`;
+            
+            document.getElementById('sum-net').innerText = netAmount.toFixed(2) + " " + currency;
+            document.getElementById('sum-vat').innerText = "+" + vatAmount.toFixed(2) + " " + currency;
+            document.getElementById('sum-total').innerText = total.toFixed(2) + " " + currency;
+        };
+
+        function render() {
+            const o = orderData;
+            const c = o[DB_FIELDS.ORDERS.FIELDS.CUSTOMER] || {};
+            const items = o[DB_FIELDS.ORDERS.FIELDS.ITEMS] || [];
+            
+            const couponObj = o[DB_FIELDS.ORDERS.FIELDS.COUPON];
+            const couponCode = (couponObj && typeof couponObj === 'object') ? (couponObj.code || "") : (couponObj || "");
+            const rawDate = o[DB_FIELDS.ORDERS.FIELDS.INVOICE_DATE];
+            const safeDate = (typeof rawDate === 'string') ? rawDate.slice(0, 16) : '';
+
+            document.getElementById('invoice-body').innerHTML = `
+                <div class="card" style="text-align:center;">
+                    <img src="${getFullImageUrl(shopData[DB_FIELDS.SETTINGS.LOGO_URL])}" style="width:60px; margin-bottom:5px;">
+                    <div style="font-weight:bold; font-size:1.2em;">${shopData[DB_FIELDS.SETTINGS.SHOP_NAME]}</div>
+                    <small>Order ID: ${o[DB_FIELDS.ORDERS.FIELDS.ORDER_ID] || 'N/A'}</small>
+                </div>
+                <div class="card">
+                    <span class="label">INVOICE & COUPON</span>
+                    <div class="row">Date: <input type="datetime-local" id="f-date" value="${safeDate}"></div>
+                    <div class="row">Inv #: <input id="f-inv" value="${o[DB_FIELDS.ORDERS.FIELDS.INVOICE_NUMBER] || ''}"></div>
+                    <div class="row">Coupon: <input id="f-coupon" value="${couponCode}" readonly> <button class="btn" style="background:red; font-size:10px; width:auto;" onclick="removeCoupon()">X</button></div>
+                    <div class="row">Discount: <input type="number" id="f-disc" value="${o[DB_FIELDS.ORDERS.FIELDS.DISCOUNT] || 0}" oninput="calculateSummary()"></div>
+                    <div class="row">VAT %: <input type="number" id="f-vat" value="${o[DB_FIELDS.ORDERS.FIELDS.VAT_PERCENT] || 0}" oninput="calculateSummary()"></div>
+                </div>
+                <div class="card">
+                    <span class="label">PRODUCTS</span>
+                    <input style="width:100%" placeholder="Search product..." oninput="search(this.value)">
+                    <div id="res"></div>
+                    <div id="items">${items.map((item, i) => `
+                        <div class="product-item">
+                            <img src="${getFullImageUrl(item.image)}" style="width:40px;height:40px;object-fit:cover;">
+                            <div style="flex:1"><b>${item.title}</b><br>${Number(item.price).toFixed(2)} ${currency}</div>
+                            <input type="number" style="width:60px" value="${item.qty}" oninput="updateQty(${i}, this.value)">
+                            <button class="btn" style="background:red; width:auto;" onclick="removeItem(${i})">X</button>
+                        </div>`).join('')}
+                    </div>
+                </div>
+                <div class="card">
+                    <span class="label">SUMMARY</span>
+                    <div class="row">Subtotal: <span id="sum-sub"></span></div>
+                    <div class="row"><span id="sum-label-disc">Discount</span>: <span id="sum-disc"></span></div>
+                    <div class="row">Net Amount: <span id="sum-net"></span></div>
+                    <div class="row"><span id="sum-label-vat">VAT Amount</span>: <span id="sum-vat"></span></div>
+                    <div class="row" style="font-weight:bold;">Total: <span id="sum-total"></span></div>
+                </div>
+                <div class="card">
+                    <span class="label">CUSTOMER</span>
+                    <div class="row">Name: <input id="f-name" value="${c.name || ''}"></div>
+                    <div class="row">Email: <input id="f-email" value="${o[DB_FIELDS.ORDERS.FIELDS.USER_EMAIL] || ''}"></div>
+                    <div class="row">Phone: <input id="f-phone" value="${c.phone || ''}"></div>
+                    <div class="row">Addr: <input id="f-addr" value="${c.address || ''}"></div>
+                    <div class="row">City: <input id="f-city" value="${c.city || ''}"></div>
+                    <div class="row">Country: <input id="f-country" value="${c.country || ''}"></div>
+                </div>
+            `;
+            calculateSummary();
+        }
+
+        window.search = (q) => { document.getElementById('res').innerHTML = q ? allProducts.filter(p => p.title.toLowerCase().includes(q.toLowerCase())).map(p => `<div onclick="addItem('${p.id}')" style="padding:10px; border-bottom:1px solid #eee">${p.title}</div>`).join('') : ''; };
+        window.addItem = (id) => { const p = allProducts.find(x => x.id === id); orderData[DB_FIELDS.ORDERS.FIELDS.ITEMS].push({ id: p.id, title: p.title, price: p.price, qty: 1, image: p.image }); render(); };
+        window.removeItem = (i) => { orderData[DB_FIELDS.ORDERS.FIELDS.ITEMS].splice(i, 1); render(); };
+        window.removeCoupon = () => { orderData[DB_FIELDS.ORDERS.FIELDS.COUPON] = ""; orderData[DB_FIELDS.ORDERS.FIELDS.DISCOUNT] = 0; render(); };
+        window.updateQty = (i, v) => { orderData[DB_FIELDS.ORDERS.FIELDS.ITEMS][i].qty = v; calculateSummary(); };
+
+        window.saveChanges = async () => {
+            const items = orderData[DB_FIELDS.ORDERS.FIELDS.ITEMS];
+            const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * Number(item.qty || 0)), 0);
+            const discount = parseFloat(document.getElementById('f-disc').value || 0);
+            const vatPercent = parseFloat(document.getElementById('f-vat').value || 0);
+            
+            const netAmount = Math.max(0, subtotal - discount);
+            const vatAmount = netAmount * (vatPercent / 100);
+            const total = netAmount + vatAmount;
+
+            await updateDoc(doc(db, DB_FIELDS.ORDERS.COLLECTION, orderId), {
+                [DB_FIELDS.ORDERS.FIELDS.INVOICE_NUMBER]: document.getElementById('f-inv').value,
+                [DB_FIELDS.ORDERS.FIELDS.INVOICE_DATE]: document.getElementById('f-date').value,
+                [DB_FIELDS.ORDERS.FIELDS.COUPON]: document.getElementById('f-coupon').value,
+                [DB_FIELDS.ORDERS.FIELDS.DISCOUNT]: discount,
+                [DB_FIELDS.ORDERS.FIELDS.VAT_PERCENT]: vatPercent,
+                [DB_FIELDS.ORDERS.FIELDS.VAT_AMOUNT]: vatAmount,
+                [DB_FIELDS.ORDERS.FIELDS.NET_AMOUNT]: netAmount,
+                [DB_FIELDS.ORDERS.FIELDS.TOTAL]: total,
+                [DB_FIELDS.ORDERS.FIELDS.SUBTOTAL]: subtotal,
+                [DB_FIELDS.ORDERS.FIELDS.ITEMS]: items,
+                [DB_FIELDS.ORDERS.FIELDS.USER_EMAIL]: document.getElementById('f-email').value,
+                [DB_FIELDS.ORDERS.FIELDS.CUSTOMER]: {
+                    name: document.getElementById('f-name').value,
+                    phone: document.getElementById('f-phone').value,
+                    address: document.getElementById('f-addr').value,
+                    city: document.getElementById('f-city').value,
+                    country: document.getElementById('f-country').value
+                }
+            });
+            alert("Updated!");
+        };
+        init();
+    </script>
+</body>
+</html>
+

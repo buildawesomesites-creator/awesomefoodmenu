@@ -1,0 +1,249 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Menu</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+        
+        /* Layout Fixes */
+        header { box-sizing: border-box !important; padding: 0 10px !important; }
+        header > div { flex-shrink: 0 !important; overflow: hidden !important; }
+        #head-signout { flex-shrink: 0 !important; white-space: nowrap !important; }
+
+        body { 
+            margin: 0; padding: 0; padding-top: 70px; 
+            min-height: 100vh; font-family: 'Roboto', sans-serif; 
+            background: #f8f9fa; display: flex; flex-direction: column;
+        }
+
+        /* Lightbox Overlay */
+        #lightbox {
+            display: none; position: fixed; z-index: 10000; top: 0; left: 0; 
+            width: 100%; height: 100%; background: rgba(0,0,0,0.9); 
+            align-items: center; justify-content: center; cursor: pointer;
+        }
+        #lightbox img { max-width: 90%; max-height: 90%; border-radius: 12px; }
+
+        #header-container { flex: 0 0 auto; z-index: 1000; }
+        
+        #content-container { 
+            flex: 1; width: 100%; max-width: 600px; 
+            margin: 0 auto; padding-bottom: 50px; overflow: visible; 
+        }
+        
+        #footer-container { flex: 0 0 auto; }
+
+        /* Admin Menu Specific Styles */
+        .sticky-header {
+            position: sticky;
+            position: -webkit-sticky;
+            top: 70px; 
+            background: #fff;
+            z-index: 9998;
+            padding: 15px 10px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        
+        .sticky-header select { 
+            flex: 1; padding: 12px; border-radius: 12px; 
+            border: 1px solid #ddd; font-weight: 600; font-size: 1em; min-width: 0; 
+        }
+
+        /* Search Bar Wrapper */
+        .search-wrapper { flex: 1; position: relative; display: flex; align-items: center; }
+        #search-input { 
+            width: 100%; padding: 12px 35px 12px 12px; border-radius: 12px; 
+            border: 1px solid #ddd; font-weight: 600; font-size: 1em; box-sizing: border-box;
+        }
+        #clear-search {
+            position: absolute; right: 10px; cursor: pointer; color: #aaa; 
+            font-weight: 800; font-size: 16px; display: none;
+        }
+
+        .cat-header { font-size: 1.5em; font-weight: 900; margin: 25px 0 10px 10px; color: #2d3436; }
+        #product-list { display: flex; flex-direction: column; gap: 15px; padding: 10px; }
+        
+        .product-card { 
+            background: #fff; padding: 16px; border-radius: 16px; 
+            border: 1px solid #f0f0f0; display: flex; flex-direction: column; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        }
+        /* WordPress-style uniform image grid */
+        .product-img { 
+            width: 100%; 
+            height: 250px; 
+            object-fit: cover; 
+            border-radius: 12px; 
+            background: #f9f9f9; 
+            margin-bottom: 12px; 
+            display: block; 
+            cursor: pointer;
+        }
+        .title { font-size: 1.3em; font-weight: 800; margin: 0 0 6px 0; }
+        .desc { color: #636e72; font-size: 1em; margin: 0 0 12px 0; line-height: 1.4; }
+        
+        .attr-tag { 
+            display: inline-flex; align-items: center; gap: 6px; font-size: 0.85em; 
+            font-weight: 700; padding: 4px 10px; border-radius: 8px; 
+            margin-right: 8px; margin-top: 5px; border: 1px solid rgba(0,0,0,0.05);
+        }
+        .attr-icon { font-size: 1.1em; }
+        
+        .price-row { display: flex; justify-content: flex-start; align-items: center; margin-top: 12px; gap: 12px; }
+        .price { font-weight: 900; color: #0984e3; font-size: 1.4em; }
+        .original-price { text-decoration: line-through; color: #d63031; font-size: 1.1em; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+    <div id="lightbox" onclick="this.style.display='none'">
+        <img id="lightbox-img" src="" alt="Full size">
+    </div>
+
+    <div id="header-container"></div>
+    
+    <div id="content-container">
+        <div id="admin-menu-block">
+            <div class="sticky-header">
+                <select id="cat-select" onchange="jumpToCategory(this.value)">
+                    <option value="">Category...</option>
+                </select>
+                <div class="search-wrapper">
+                    <input type="text" id="search-input" placeholder="Search..." oninput="handleSearch(this.value)">
+                    <span id="clear-search" onclick="clearSearch()">✕</span>
+                </div>
+            </div>
+            <div id="product-list"></div>
+        </div>
+    </div>
+
+    <div id="footer-container"></div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        import { db } from "./firebase-config.js";
+        import { doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
+
+        let allProducts = [];
+        let attributeConfig = {}; 
+        const C = DB_FIELDS.CATEGORIES;
+        const P = DB_FIELDS.PRODUCTS;
+
+        async function init() {
+            await Promise.all([injectHeader(), injectFooter('menu')]);
+            await loadAttributeConfig();
+            await loadCategories();
+            await fetchAllProducts();
+            renderAllGrouped(allProducts);
+        }
+
+        async function loadAttributeConfig() {
+            try {
+                const docRef = doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES);
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    (snap.data().attributes || []).forEach(attr => attributeConfig[attr.name] = { color: attr.color, icon: attr.icon });
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadCategories() {
+            try {
+                const catDoc = await getDoc(doc(db, C.COLLECTION, C.DOC_CATEGORIES));
+                const list = catDoc.exists() ? (catDoc.data()[C.FIELDS.LIST] || []) : [];
+                const select = document.getElementById('cat-select');
+                list.forEach(cat => {
+                    const opt = document.createElement('option');
+                    opt.value = cat; opt.innerText = cat;
+                    select.appendChild(opt);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function fetchAllProducts() {
+            const snap = await getDocs(collection(db, P.COLLECTION));
+            allProducts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+        }
+
+        window.openLightbox = (src) => {
+            document.getElementById('lightbox-img').src = src;
+            document.getElementById('lightbox').style.display = 'flex';
+        };
+
+        window.jumpToCategory = (cat) => {
+            if (!cat) return;
+            const element = document.getElementById("cat-" + cat);
+            const sticky = document.querySelector(".sticky-header");
+            if (!element || !sticky) return;
+            const offset = 70 + sticky.offsetHeight + 10;
+            const y = element.getBoundingClientRect().top + window.pageYOffset - offset;
+            window.scrollTo({ top: y, behavior: "smooth" });
+        };
+
+        window.handleSearch = (query) => {
+            const clearBtn = document.getElementById('clear-search');
+            clearBtn.style.display = query.length > 0 ? 'block' : 'none';
+            
+            const filtered = allProducts.filter(p => (p[P.FIELDS.TITLE] || "").toLowerCase().includes(query.toLowerCase()));
+            renderAllGrouped(filtered);
+
+            if (query.length > 0 && filtered.length > 0) {
+                jumpToCategory(filtered[0][P.FIELDS.CATEGORY]);
+            }
+        };
+
+        window.clearSearch = () => {
+            const input = document.getElementById('search-input');
+            input.value = '';
+            document.getElementById('clear-search').style.display = 'none';
+            renderAllGrouped(allProducts);
+        };
+
+        function renderAllGrouped(products) {
+            const list = document.getElementById('product-list');
+            const grouped = products.reduce((acc, p) => {
+                const cat = p[P.FIELDS.CATEGORY] || 'Uncategorized';
+                if (!acc[cat]) acc[cat] = [];
+                acc[cat].push(p);
+                return acc;
+            }, {});
+
+            list.innerHTML = Object.keys(grouped).map(cat => `
+                <div id="cat-${cat}" class="cat-header">${cat}</div>
+                ${grouped[cat].map(p => {
+                    const imgUrl = getFullImageUrl(p[P.FIELDS.IMAGE]);
+                    const attrs = p[P.FIELDS.ATTRIBUTES] || [];
+                    const attrHtml = attrs.map(a => {
+                        const cfg = attributeConfig[a] || { color: "#636e72", icon: "" };
+                        return `<span class="attr-tag" style="background:${cfg.color}20; color:${cfg.color};"><span class="attr-icon">${cfg.icon}</span> ${a}</span>`;
+                    }).join('');
+                    
+                    const hasDiscount = p[P.FIELDS.DISCOUNT_PRICE] && p[P.FIELDS.DISCOUNT_PRICE] < p[P.FIELDS.PRICE];
+                    return `
+                    <div class="product-card">
+                        <img src="${imgUrl}" onerror="this.style.display='none'" class="product-img" onclick="openLightbox('${imgUrl}')">
+                        <h3 class="title">${p[P.FIELDS.TITLE] || 'Untitled'}</h3>
+                        <p class="desc">${p[P.FIELDS.DESCRIPTION] || ''}</p>
+                        <div>${attrHtml}</div>
+                        <div class="price-row">
+                            ${hasDiscount ? `<span class="original-price">${p[P.FIELDS.PRICE]} $</span>` : ''}
+                            <span class="price">${hasDiscount ? p[P.FIELDS.DISCOUNT_PRICE] : p[P.FIELDS.PRICE]} $</span>
+                        </div>
+                    </div>`;
+                }).join('')}
+            `).join('');
+        }
+
+        init();
+    </script>
+</body>
+</html>

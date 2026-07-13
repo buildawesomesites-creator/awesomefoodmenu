@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Add New Product</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap');
+        * { box-sizing: border-box; font-family: 'Outfit', sans-serif; font-weight: 600; }
+        
+        body { background: #f8f9fa; margin: 0; padding-top: 20px; min-height: 100vh; display: flex; flex-direction: column; }
+        .form-container { flex: 1; width: 100%; max-width: 500px; margin: 0 auto; padding: 0 20px 100px 20px; }
+        
+        .field { margin-bottom: 30px; width: 100%; }
+        .category-wrapper { margin-bottom: 60px; } 
+        
+        label { font-size: 14px; color: #636e72; display: block; margin-bottom: 10px; padding-left: 5px; }
+        
+        .price-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+        .currency-symbol { font-weight: 800; font-size: 20px; color: #0984e3; min-width: 30px; text-align: center; }
+        
+        input[type="text"], input[type="number"], textarea, select { width: 100%; padding: 14px; border: 2px solid #dfe6e9; border-radius: 12px; font-size: 16px; }
+        
+        .grid-group { 
+            display: grid; grid-template-columns: 1fr 1fr; gap: 12px; 
+            padding: 15px; background: white; border-radius: 12px; border: 2px solid #dfe6e9; margin-bottom: 10px; 
+        }
+        .checkbox-item { 
+            display: flex; align-items: center; gap: 10px; font-size: 16px; 
+            padding: 12px; background: #f8f9fa; border-radius: 8px; cursor: pointer; user-select: none;
+        }
+        input[type="checkbox"] { transform: scale(1.4); margin-right: 5px; }
+        
+        .add-link { display: block; font-size: 14px; color: #0984e3; text-decoration: none; margin-bottom: 10px; text-align: right; padding-right: 5px; }
+        
+        .footer-buttons { 
+            position: fixed; bottom: 0; left: 0; width: 100%; padding: 20px; 
+            background: #f8f9fa; border-top: 1px solid #dfe6e9; max-width: 500px; margin: 0 auto; right: 0;
+            display: grid; grid-template-columns: 1fr 2fr; gap: 15px;
+        }
+        
+        button { padding: 16px; border: none; border-radius: 12px; cursor: pointer; font-weight: 800; font-size: 16px; }
+        .btn-save { background: #00b894; color: white; }
+        .btn-back { background: #636e72; color: white; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+
+    <div class="form-container">
+        <h2 style="text-align: center; color: #0984e3; margin-bottom: 30px;">Add New Product</h2>
+        
+        <div class="field"><label>Display ID</label><input type="text" id="p-id" placeholder="e.g. 1002"></div>
+        <div class="field"><label>Title</label><input type="text" id="p-title"></div>
+        <div class="field"><label>Description</label><textarea id="p-desc" rows="3"></textarea></div>
+        <div class="field"><label>Image URL (CDN)</label><input type="text" id="p-img" placeholder="https://..."></div>
+        
+        <div class="field">
+            <label>Price</label>
+            <div class="price-row">
+                <div class="currency-symbol">$</div>
+                <input type="number" id="p-price">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Discount Price</label>
+            <div class="price-row">
+                <div class="currency-symbol">$</div>
+                <input type="number" id="p-discount">
+            </div>
+        </div>
+
+        <div class="field"><label>Stock</label><input type="number" id="p-stock" value="500"></div>
+        
+        <div class="field category-wrapper">
+            <label>Category</label>
+            <select id="p-cat"></select>
+            <a href="create-category.html" class="add-link">+ Add New Category</a>
+        </div>
+        
+        <label>Attributes</label>
+        <div id="attr-list" class="grid-group"></div>
+        <a href="create-product-attributes.html" class="add-link">+ Add More Attributes</a>
+        
+        <label>Tags</label>
+        <div id="tag-list" class="grid-group"></div>
+        <a href="create-product-tags.html" class="add-link">+ Add More Tags</a>
+    </div>
+
+    <div class="footer-buttons">
+        <button class="btn-back" onclick="window.history.back()">Back</button>
+        <button class="btn-save" onclick="window.saveProduct()">Add Product</button>
+    </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { db } from "./firebase-config.js";
+        import { doc, getDoc, getDocs, setDoc, collection } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { DB_FIELDS } from "./globaldata.js";
+
+        injectHeader();
+
+        async function initPage() {
+            try {
+                const [shopSnap, catSnap, attrSnap, tagSnap] = await Promise.all([
+                    getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP)),
+                    getDoc(doc(db, DB_FIELDS.CATEGORIES.COLLECTION, DB_FIELDS.CATEGORIES.DOC_CATEGORIES)),
+                    getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES)),
+                    getDocs(collection(db, DB_FIELDS.TAGS.COLLECTION))
+                ]);
+
+                if (shopSnap.exists()) {
+                    const currency = shopSnap.data()[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+                    const symbol = currency?.symbol || "$";
+                    // Apply symbol to all elements with class 'currency-symbol'
+                    document.querySelectorAll('.currency-symbol').forEach(el => el.innerText = symbol);
+                }
+
+                const categories = catSnap.exists() ? (catSnap.data()[DB_FIELDS.CATEGORIES.FIELDS.LIST] || []) : [];
+                const catSelect = document.getElementById('p-cat');
+                categories.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c; opt.innerText = c;
+                    catSelect.appendChild(opt);
+                });
+
+                const attrContainer = document.getElementById('attr-list');
+                const attributes = attrSnap.exists() ? (attrSnap.data()[DB_FIELDS.SETTINGS.FIELD_ATTRIBUTES_LIST] || []) : [];
+                attributes.forEach(a => {
+                    attrContainer.innerHTML += `<label class="checkbox-item"><input type="checkbox" name="attr" value="${a.name}"> <span>${a.icon} ${a.name}</span></label>`;
+                });
+
+                const tagContainer = document.getElementById('tag-list');
+                tagSnap.forEach(t => {
+                    const tagName = t.data()[DB_FIELDS.TAGS.FIELDS.NAME];
+                    tagContainer.innerHTML += `<label class="checkbox-item"><input type="checkbox" name="tag" value="${tagName}"> <span>🏷️ ${tagName}</span></label>`;
+                });
+            } catch (e) { console.error("Init failed", e); }
+        }
+
+        window.saveProduct = async () => {
+            const id = document.getElementById('p-id').value.trim();
+            if (!id) { alert("Please enter a Display ID"); return; }
+
+            const selectedAttrs = Array.from(document.querySelectorAll('input[name="attr"]:checked')).map(i => i.value);
+            const selectedTags = Array.from(document.querySelectorAll('input[name="tag"]:checked')).map(i => i.value);
+
+            const data = {
+                [DB_FIELDS.PRODUCTS.FIELDS.ID]: id,
+                [DB_FIELDS.PRODUCTS.FIELDS.TITLE]: document.getElementById('p-title').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.IMAGE]: document.getElementById('p-img').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.PRICE]: Number(document.getElementById('p-price').value) || 0,
+                [DB_FIELDS.PRODUCTS.FIELDS.DISCOUNT_PRICE]: Number(document.getElementById('p-discount').value) || 0,
+                [DB_FIELDS.PRODUCTS.FIELDS.STOCK]: Number(document.getElementById('p-stock').value) || 0,
+                [DB_FIELDS.PRODUCTS.FIELDS.DESCRIPTION]: document.getElementById('p-desc').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.CATEGORY]: document.getElementById('p-cat').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]: selectedAttrs,
+                [DB_FIELDS.PRODUCTS.FIELDS.TAGS]: selectedTags,
+                [DB_FIELDS.PRODUCTS.FIELDS.UPDATED_AT]: Date.now()
+            };
+
+            try {
+                await setDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, id), data);
+                alert("New product added successfully!");
+                location.reload(); 
+            } catch (error) {
+                console.error("Save error:", error);
+                alert("Error saving: " + error.message);
+            }
+        };
+
+        initPage();
+    </script>
+</body>
+</html>
+

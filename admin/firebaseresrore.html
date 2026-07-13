@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Management Tool</title>
+    <link rel="stylesheet" href="headerandfooter.css">
+    <style>
+        body { font-family: 'Roboto', sans-serif; background: #f4f4f9; padding-top: 80px; margin: 0; }
+        .container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        
+        /* Unified Button Style - Pill shape */
+        .btn { 
+            width: 100%; 
+            padding: 15px; 
+            border: none; 
+            border-radius: 50px; 
+            cursor: pointer; 
+            font-weight: 900; 
+            margin-top: 15px; 
+            text-decoration: none; 
+            display: block; 
+            text-align: center; 
+            font-size: 1rem;
+            text-transform: uppercase;
+            box-sizing: border-box;
+        }
+        .btn-restore { background: #007bff; color: white; }
+        .btn-wipe { background: #dc3545; color: white; }
+        .btn-admin { background: #333; color: white; }
+        .btn:disabled { background: #ccc; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="text-align:center; margin-top:0;">Management Tool</h2>
+    <button id="restoreBtn" class="btn btn-restore">RESTORE DATA</button>
+    <button id="wipeBtn" class="btn btn-wipe">WIPE ALL DATA</button>
+    <a href="admin-login.html" class="btn btn-admin">ADMIN LOGIN</a>
+    <div id="status" style="margin-top:20px; font-weight: bold; text-align: center; color: #333;"></div>
+</div>
+
+<script type="module">
+    import { auth, db } from "./firebase-config.js";
+    import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+    import { doc, getDoc, setDoc, collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+    // Inject Header with Green Online Dot
+    const headerHTML = `
+    <header id="top-header" style="position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; height: 65px !important; display: flex !important; align-items: center !important; justify-content: space-between !important; background: #fff !important; z-index: 1000 !important; box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important; padding: 0 15px !important;">
+        <a href="admin-dashboard.html" style="display: flex !important; align-items: center !important; gap: 10px !important; text-decoration: none !important; color: inherit !important;">
+            <img id="shop-logo-display" src="" alt="Logo" style="height: 35px; width: 35px; object-fit: contain; border-radius: 4px; display: none;">
+            <span id="shop-name" style="font-weight: 900; text-transform: uppercase;">INVIESHOP</span>
+        </a>
+        <div style="display:flex; align-items:center; gap:5px;">
+            <div id="admin-name" style="font-size: 11px; padding: 5px 12px; background: #f0f0f0; border-radius: 50px; font-weight: 900; text-transform: uppercase; border: 1px solid #ddd; display: flex; align-items: center; gap: 4px;">
+                <span>🟢</span> ADMIN
+            </div>
+            <button onclick="window.handleLogout()" style="font-size: 11px; padding: 5px 12px; background: #fee2e2; color: #dc3545; border: 1px solid #fecaca; border-radius: 50px; font-weight: 900; cursor: pointer; text-transform: uppercase;">Sign Out</button>
+        </div>
+    </header>`;
+    document.body.insertAdjacentHTML('afterbegin', headerHTML);
+
+    // Sync Shop Info
+    const updateUI = (name, logo) => {
+        document.getElementById("shop-name").textContent = name || "INVIESHOP";
+        const logoEl = document.getElementById("shop-logo-display");
+        if (logo) { logoEl.src = logo; logoEl.style.display = 'block'; }
+    };
+    updateUI(localStorage.getItem("shopName"), localStorage.getItem("shopLogo"));
+
+    window.handleLogout = () => signOut(auth).then(() => window.location.href = "admin-login.html");
+    
+    onAuthStateChanged(auth, async (user) => {
+        if (!user) { window.location.href = "admin-login.html"; return; }
+        const adminSnap = await getDoc(doc(db, "admins", user.uid));
+        if (adminSnap.exists()) {
+            document.getElementById("admin-name").innerHTML = `<span>🟢</span> ${adminSnap.data().name.toUpperCase()}`;
+        }
+    });
+
+    // Action Logic
+    document.getElementById("restoreBtn").onclick = async () => {
+        const btn = document.getElementById("restoreBtn");
+        const status = document.getElementById("status");
+        btn.disabled = true; status.innerText = "Restoring...";
+        try {
+            const response = await fetch('./backup/demo-shop.json');
+            const data = await response.json();
+            for (const colName in data) {
+                for (const docData of data[colName]) {
+                    const { id, ...docFields } = docData;
+                    await setDoc(doc(db, colName, id), docFields);
+                }
+            }
+            status.innerText = "Restore Complete!";
+        } catch (err) { status.innerText = "Error: " + err.message; }
+        finally { btn.disabled = false; }
+    };
+
+    document.getElementById("wipeBtn").onclick = async () => {
+        if (!confirm("⚠️ DELETE ALL DATA?")) return;
+        const btn = document.getElementById("wipeBtn");
+        const status = document.getElementById("status");
+        btn.disabled = true;
+        try {
+            const collections = ["categories", "coupons", "orders", "products", "settings", "users"];
+            for (const colName of collections) {
+                const snap = await getDocs(collection(db, colName));
+                for (const d of snap.docs) await deleteDoc(doc(db, colName, d.id));
+            }
+            status.innerText = "Wipe Complete!";
+        } catch (err) { status.innerText = "Error: " + err.message; }
+        finally { btn.disabled = false; }
+    };
+</script>
+</body>
+</html>
+

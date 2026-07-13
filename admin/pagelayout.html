@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        
+        /* Layout Structure */
+        body { 
+            background: #f0f2f5; 
+            margin: 0; 
+            padding-top: 80px;  /* Space for fixed header */
+            padding-bottom: 90px; /* Space for fixed footer */
+        }
+        .container { 
+            max-width: 500px; 
+            margin: auto; 
+            padding: 0 20px; 
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+
+        // Initialize UI components
+        injectHeader();
+        // Replace 'dashboard' with the identifier of the current page
+        injectFooter('dashboard'); 
+    </script>
+</body>
+</html>
+

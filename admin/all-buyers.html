@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>All Buyers</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #ffffff; padding-top: 80px; padding-bottom: 100px; margin: 0; }
+        .container { max-width: 500px; margin: auto; padding: 0 20px; }
+        
+        .search-container { position: relative; width: 100%; margin-top: 10px; }
+        #search-input { width: 100%; padding: 15px; border-radius: 12px; border: 1px solid #ddd; font-size: 16px; }
+        #clear-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: #eee; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-weight: bold; display: none; }
+        
+        .controls { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-download { flex: 1; padding: 12px; border-radius: 12px; background: #28a745; color: white; border: none; font-weight: 900; cursor: pointer; }
+        #sort-select { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid #ddd; font-size: 14px; background: #f8f8f8; }
+
+        .user-card { background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #eee; box-shadow: 0 2px 5px rgba(0,0,0,0.05); font-size: 16px; line-height: 1.6; }
+        .user-name { font-weight: 900; font-size: 18px; margin-bottom: 5px; }
+        .actions { display: flex; gap: 10px; margin-top: 15px; }
+        .btn-pill { padding: 8px 20px; border-radius: 20px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; text-transform: uppercase; flex: 1; text-align: center; }
+        .btn-edit { background: #f0f7ff; color: #007bff; border: 1px solid #007bff; }
+        .btn-del { background: #fff0f0; color: #ff4d4f; border: 1px solid #ff4d4f; }
+
+        #modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; padding: 20px; overflow-y: auto;}
+        .modal-content { background: white; padding: 20px; border-radius: 16px; max-width: 400px; margin: 50px auto; }
+        .modal-content input { width: 100%; padding: 12px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .modal-content input:disabled { background: #f9f9f9; color: #999; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="controls">
+            <button class="btn-download" onclick="window.downloadCSV()">Download CSV</button>
+            <select id="sort-select" onchange="window.sortUsers(this.value)">
+                <option value="new">Sort by Newest</option>
+                <option value="name">Sort by Name</option>
+                <option value="city">Sort by City</option>
+            </select>
+        </div>
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="Search by name, phone, email, city..." oninput="window.filterUsers(this.value)">
+            <button id="clear-btn" onclick="window.clearSearch()">X</button>
+        </div>
+        <h2>All Buyers</h2>
+        <div id="users-list">Loading users...</div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <h3>Edit User</h3>
+            <label>Name</label><input type="text" id="edit-name">
+            <label>UID</label><input type="text" id="edit-uid">
+            <label>Email</label><input type="text" id="edit-email">
+            <label>Phone</label><input type="text" id="edit-phone">
+            <label>Address</label><input type="text" id="edit-address">
+            <label>City</label><input type="text" id="edit-city">
+            <label>Country</label><input type="text" id="edit-country">
+            <label>Joined Date</label><input type="text" id="edit-date" disabled>
+            <button onclick="window.saveUser()" style="width:100%; padding:12px; background:#007bff; color:white; border:none; border-radius:20px; font-weight:bold;">Save Changes</button>
+            <button onclick="document.getElementById('modal').style.display='none'" style="width:100%; padding:12px; margin-top:10px; background:#f4f4f4; border:none; border-radius:20px;">Close</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        import { auth, db } from "./firebase-config.js";
+        import { DB_FIELDS } from "./globaldata.js";
+        import { collection, getDocs, updateDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+
+        injectHeader();
+        injectFooter('dashboard');
+
+        const U = DB_FIELDS.USERS.FIELDS;
+        let allUsers = [];
+        let editingId = null;
+
+        const formatDate = (val) => {
+            if (!val) return 'N/A';
+            const date = val.seconds ? new Date(val.seconds * 1000) : new Date(val);
+            return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (!user) { window.location.href = "admin-login.html"; return; }
+            fetchUsers();
+        });
+
+        async function fetchUsers() {
+            const [usersSnap, ordersSnap] = await Promise.all([
+                getDocs(collection(db, DB_FIELDS.USERS.COLLECTION)),
+                getDocs(collection(db, DB_FIELDS.ORDERS.COLLECTION))
+            ]);
+
+            const userMap = {};
+
+            usersSnap.forEach(doc => {
+                const data = doc.data();
+                const uid = data[U.UID] || doc.id;
+                userMap[uid] = { id: doc.id, ...data, uid: uid };
+            });
+
+            ordersSnap.forEach(doc => {
+                const order = doc.data();
+                const customer = order[DB_FIELDS.ORDERS.FIELDS.CUSTOMER];
+                const uid = customer?.uid;
+                
+                if (uid) {
+                    if (!userMap[uid]) userMap[uid] = { uid: uid };
+                    userMap[uid][U.NAME] = userMap[uid][U.NAME] || customer.name || 'Unknown';
+                    userMap[uid][U.USER_EMAIL] = userMap[uid][U.USER_EMAIL] || order[DB_FIELDS.ORDERS.FIELDS.USER_EMAIL] || customer.email || '';
+                    userMap[uid][U.PHONE] = userMap[uid][U.PHONE] || customer.phone || '';
+                    userMap[uid][U.ADDRESS] = userMap[uid][U.ADDRESS] || customer.address || '';
+                    userMap[uid][U.CITY] = userMap[uid][U.CITY] || customer.city || '';
+                    userMap[uid][U.COUNTRY] = userMap[uid][U.COUNTRY] || customer.country || '';
+                }
+            });
+
+            allUsers = Object.values(userMap);
+            window.sortUsers('new');
+        }
+
+        window.sortUsers = (criteria) => {
+            if (criteria === 'name') allUsers.sort((a, b) => (a[U.NAME] || "").localeCompare(b[U.NAME] || ""));
+            else if (criteria === 'new') allUsers.sort((a, b) => new Date(b[U.CREATED_AT] || 0) - new Date(a[U.CREATED_AT] || 0));
+            else if (criteria === 'city') allUsers.sort((a, b) => (a[U.CITY] || "").localeCompare(b[U.CITY] || ""));
+            renderUsers(allUsers);
+        };
+
+        function renderUsers(users) {
+            document.getElementById("users-list").innerHTML = users.map(u => `
+                <div class="user-card">
+                    <div class="user-name">${u[U.NAME] || 'Unnamed'}</div>
+                    <div style="font-size: 12px; color: #666;">UID: ${u.uid || 'N/A'}</div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Joined: ${formatDate(u[U.CREATED_AT])}</div>
+                    <div>Email: ${u[U.USER_EMAIL] || 'N/A'}</div>
+                    <div>Phone: ${u[U.PHONE] || 'N/A'}</div>
+                    <div>City: ${u[U.CITY] || 'N/A'}</div>
+                    <div>Country: ${u[U.COUNTRY] || 'N/A'}</div>
+                    <div class="actions">
+                        <button class="btn-pill btn-edit" onclick="window.openEdit('${u.id || u.uid}')">Edit</button>
+                        ${u.id ? `<button class="btn-pill btn-del" onclick="window.deleteUser('${u.id}')">Delete</button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.openEdit = (key) => {
+            const u = allUsers.find(x => x.id === key || x.uid === key);
+            if (!u) return;
+            editingId = u.id;
+            document.getElementById('edit-name').value = u[U.NAME] || '';
+            document.getElementById('edit-uid').value = u.uid || '';
+            document.getElementById('edit-email').value = u[U.USER_EMAIL] || '';
+            document.getElementById('edit-phone').value = u[U.PHONE] || '';
+            document.getElementById('edit-address').value = u[U.ADDRESS] || '';
+            document.getElementById('edit-city').value = u[U.CITY] || '';
+            document.getElementById('edit-country').value = u[U.COUNTRY] || '';
+            document.getElementById('edit-date').value = formatDate(u[U.CREATED_AT]);
+            document.getElementById('modal').style.display = 'block';
+        };
+
+        window.saveUser = async () => {
+            if (!editingId) return;
+            await updateDoc(doc(db, DB_FIELDS.USERS.COLLECTION, editingId), {
+                [U.NAME]: document.getElementById('edit-name').value,
+                [U.USER_EMAIL]: document.getElementById('edit-email').value,
+                [U.PHONE]: document.getElementById('edit-phone').value,
+                [U.ADDRESS]: document.getElementById('edit-address').value,
+                [U.CITY]: document.getElementById('edit-city').value,
+                [U.COUNTRY]: document.getElementById('edit-country').value
+            });
+            document.getElementById('modal').style.display = 'none';
+            fetchUsers();
+        };
+
+        window.deleteUser = async (id) => {
+            if(confirm('Delete user?')) {
+                await deleteDoc(doc(db, DB_FIELDS.USERS.COLLECTION, id));
+                fetchUsers();
+            }
+        };
+
+        window.filterUsers = (val) => {
+            document.getElementById('clear-btn').style.display = val.length > 0 ? 'block' : 'none';
+            const q = val.toLowerCase();
+            renderUsers(allUsers.filter(u => 
+                (u[U.NAME]?.toLowerCase().includes(q)) || 
+                (u[U.USER_EMAIL]?.toLowerCase().includes(q)) || 
+                (u[U.CITY]?.toLowerCase().includes(q))
+            ));
+        };
+        
+        window.clearSearch = () => {
+            document.getElementById('search-input').value = '';
+            document.getElementById('clear-btn').style.display = 'none';
+            renderUsers(allUsers);
+        };
+
+        window.downloadCSV = () => {
+            let csv = "Name,UID,Email,Phone,Address,City,Country,Created At\n";
+            allUsers.forEach(u => {
+                csv += `"${u[U.NAME]||''}","${u.uid||''}","${u[U.USER_EMAIL]||''}","${u[U.PHONE]||''}","${u[U.ADDRESS]||''}","${u[U.CITY]||''}","${u[U.COUNTRY]||''}","${u[U.CREATED_AT]||''}"\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'users_list.csv';
+            a.click();
+        };
+    </script>
+</body>
+</html>
+

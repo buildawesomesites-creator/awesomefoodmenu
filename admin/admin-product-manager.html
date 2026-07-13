@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Product Manager</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #f8f9fa; padding-top: 20px; padding-bottom: 100px; margin: 0; }
+        .container { max-width: 500px; margin: auto; padding: 0 20px; }
+        h2 { text-align: center; color: #333; margin-bottom: 25px; }
+        
+        .section-label { font-size: 12px; font-weight: 900; color: #7f8c8d; margin: 20px 0 10px 5px; letter-spacing: 0.5px; }
+        
+        .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .btn-action { 
+            padding: 18px 10px; border-radius: 16px; font-size: 13px; font-weight: bold; 
+            text-align: center; text-decoration: none; cursor: pointer; display: flex; 
+            flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+            color: white; transition: transform 0.2s;
+        }
+        .btn-action span { font-size: 22px; }
+        .btn-action:active { transform: scale(0.95); }
+        
+        .full-width { grid-column: span 2; }
+        
+        /* Categories */
+        .btn-ops { background: #0984e3; }
+        .btn-add { background: #00b894; }
+        .btn-cfg { background: #6c5ce7; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Product Manager</h2>
+
+        <div class="section-label">PRODUCT OPERATIONS</div>
+        <div class="action-grid">
+            <a href="admin-product-dashboard.html" class="btn-action btn-ops full-width">
+                <span>📊</span> Filtered Product Dashboard
+            </a>
+        </div>
+
+        <div class="section-label">CREATE NEW</div>
+        <div class="action-grid">
+            <a href="manual-products.html" class="btn-action btn-add">
+                <span>✍️</span> Manual Add
+            </a>
+            <a href="bulk-products-csv.html" class="btn-action btn-add">
+                <span>📦</span> Bulk CSV Import
+            </a>
+        </div>
+
+        <div class="section-label">SYSTEM CONFIG</div>
+        <div class="action-grid">
+            <a href="create-category.html" class="btn-action btn-cfg">
+                <span>📁</span> Categories
+            </a>
+            <a href="create-product-tags.html" class="btn-action btn-cfg">
+                <span>🏷️</span> Product Tags
+            </a>
+            <a href="create-product-attributes.html" class="btn-action btn-cfg">
+                <span>⚙️</span> Attributes
+            </a>
+            <a href="create-coupon.html" class="btn-action btn-cfg">
+                <span>🎟️</span> Coupons
+            </a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        injectHeader();
+        injectFooter('products'); 
+    </script>
+</body>
+</html>
+

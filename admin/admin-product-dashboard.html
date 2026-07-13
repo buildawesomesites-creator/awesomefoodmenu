@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body { background: #f0f2f5; margin: 0; padding-top: 80px; padding-bottom: 90px; font-family: 'Roboto', sans-serif; }
+        .container { max-width: 500px; margin: auto; padding: 0 20px; }
+        h2 { color: #2d3436; font-size: 22px; font-weight: 900; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Product Manager</h2>
+
+        <div id="filters-container"></div>
+        <div id="list-container"></div>
+    </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        import { db } from "./firebase-config.js";
+        import { store } from "./store.js";
+        import { collection, getDocs } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { DB_FIELDS } from "./globaldata.js";
+
+        // Initialize UI Shell
+        injectHeader();
+        injectFooter('bulk');
+
+        /**
+         * Initialize App Store:
+         * Fetches all products ONCE to prevent repeated Firebase reads.
+         */
+        async function initStore() {
+            try {
+                const snap = await getDocs(collection(db, DB_FIELDS.PRODUCTS.COLLECTION));
+                store.allProducts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Store Initialized with", store.allProducts.length, "products.");
+                
+                // Load components only after data is ready
+                await loadComponent('bulk-products-filters.html', 'filters-container');
+                await loadComponent('bulk-products-list.html', 'list-container');
+            } catch (e) {
+                console.error("Critical Init Error:", e);
+                document.body.innerHTML = `<div class="container"><h2>Error Loading Data</h2><p>${e.message}</p></div>`;
+            }
+        }
+
+        /**
+         * Dynamic Component Loader:
+         * Injects HTML and re-executes module scripts
+         */
+        async function loadComponent(url, elementId) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Could not load ${url}`);
+                const html = await response.text();
+                const container = document.getElementById(elementId);
+                
+                container.innerHTML = html;
+                
+                // Re-execute scripts
+                const scripts = container.querySelectorAll('script');
+                scripts.forEach(s => {
+                    const newScript = document.createElement('script');
+                    newScript.type = "module";
+                    newScript.textContent = s.textContent;
+                    document.body.appendChild(newScript);
+                });
+            } catch (e) { 
+                console.error("Load Error:", url, e); 
+            }
+        }
+
+        // Start the App
+        initStore();
+    </script>
+</body>
+</html>
+

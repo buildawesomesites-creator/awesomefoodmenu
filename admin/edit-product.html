@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Edit Product</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap');
+        * { box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        body { background: #f8f9fa; margin: 0; padding: 20px; height: 100vh; display: flex; flex-direction: column; }
+        .header { font-size: 24px; font-weight: 800; color: #0984e3; margin-bottom: 20px; text-align: center; }
+        .form-container { flex: 1; overflow-y: auto; padding-bottom: 100px; width: 100%; max-width: 500px; margin: 0 auto; }
+        .field { margin-bottom: 18px; }
+        label { font-size: 13px; font-weight: 800; color: #636e72; display: block; margin-bottom: 6px; padding-left: 5px; }
+        .price-row { display: flex; align-items: center; gap: 10px; }
+        .currency-label { font-weight: 900; font-size: 20px; color: #0984e3; min-width: 30px; text-align: center; }
+        input, textarea, select { width: 100%; padding: 16px; border: 2px solid #dfe6e9; border-radius: 16px; font-size: 16px; font-weight: 600; }
+        .checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; padding: 12px; background: #fff; border: 2px solid #dfe6e9; border-radius: 16px; }
+        .checkbox-item { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; background: #f1f2f6; padding: 10px 14px; border-radius: 12px; cursor: pointer; }
+        .footer-buttons { position: fixed; bottom: 0; left: 0; width: 100%; padding: 20px; background: #f8f9fa; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-top: 1px solid #dfe6e9; max-width: 500px; left: 50%; transform: translateX(-50%); }
+        button { padding: 18px; border: none; border-radius: 16px; cursor: pointer; font-weight: 900; font-size: 16px; }
+        .btn-save { background: #00b894; color: white; }
+        .btn-back { background: #636e72; color: white; }
+    </style>
+</head>
+<body>
+
+    <div class="header">Edit Product</div>
+
+    <div class="form-container" id="form-ui" style="opacity: 0;">
+        <div class="field"><label>Display ID</label><input type="text" id="p-id"></div>
+        <div class="field"><label>Title</label><input type="text" id="p-title"></div>
+        <div class="field"><label>Image URL</label><input type="text" id="p-img"></div>
+        
+        <div class="field">
+            <label>Price</label>
+            <div class="price-row">
+                <div class="currency-label">$</div>
+                <input type="number" id="p-price">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Discount Price</label>
+            <div class="price-row">
+                <div class="currency-label">$</div>
+                <input type="number" id="p-discount">
+            </div>
+        </div>
+
+        <div class="field"><label>Stock</label><input type="number" id="p-stock"></div>
+        <div class="field"><label>Description</label><textarea id="p-desc" rows="3"></textarea></div>
+        <div class="field"><label>Category</label><select id="p-cat"></select></div>
+        <div class="field"><label>Attributes</label><div id="attributes-container" class="checkbox-group"></div></div>
+        <div class="field"><label>Tags</label><div id="tags-container" class="checkbox-group"></div></div>
+    </div>
+
+    <div class="footer-buttons">
+        <button class="btn-back" onclick="window.history.back()">Back</button>
+        <button class="btn-save" onclick="window.saveProduct()">Save Changes</button>
+    </div>
+
+    <script type="module">
+        import { auth, db } from "./firebase-config.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+        import { doc, getDoc, updateDoc, getDocs, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { DB_FIELDS } from "./globaldata.js";
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const productId = urlParams.get('id');
+        const ensureArray = (val) => Array.isArray(val) ? val : (val ? [val] : []);
+
+        async function initPage() {
+            if (!productId) { alert("Invalid Product ID"); return; }
+            
+            try {
+                const settingsSnap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP));
+                const [attrSnap, tagsSnap, productSnap, catSnap] = await Promise.all([
+                    getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES)),
+                    getDocs(collection(db, DB_FIELDS.TAGS.COLLECTION)),
+                    getDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, productId)),
+                    getDoc(doc(db, DB_FIELDS.CATEGORIES.COLLECTION, DB_FIELDS.CATEGORIES.DOC_CATEGORIES))
+                ]);
+
+                if (!productSnap.exists()) { alert("Product not found"); return; }
+
+                const settingsData = settingsSnap.exists() ? settingsSnap.data() : {};
+                const currencyObj = settingsData[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY];
+                const currency = (typeof currencyObj === 'object' && currencyObj !== null) ? (currencyObj.symbol || "$") : "$";
+                
+                document.querySelectorAll('.currency-label').forEach(el => el.innerText = currency);
+
+                const p = productSnap.data();
+                const masterAttrs = attrSnap.exists() ? attrSnap.data()[DB_FIELDS.SETTINGS.FIELD_ATTRIBUTES_LIST] : [];
+                const allTags = tagsSnap.docs.map(d => d.data()[DB_FIELDS.TAGS.FIELDS.NAME]);
+                const categories = catSnap.exists() ? (catSnap.data()[DB_FIELDS.CATEGORIES.FIELDS.LIST] || []) : [];
+
+                document.getElementById('p-id').value = p[DB_FIELDS.PRODUCTS.FIELDS.ID] || '';
+                document.getElementById('p-title').value = p[DB_FIELDS.PRODUCTS.FIELDS.TITLE] || '';
+                document.getElementById('p-img').value = p[DB_FIELDS.PRODUCTS.FIELDS.IMAGE] || '';
+                document.getElementById('p-price').value = p[DB_FIELDS.PRODUCTS.FIELDS.PRICE] || 0;
+                document.getElementById('p-discount').value = p[DB_FIELDS.PRODUCTS.FIELDS.DISCOUNT_PRICE] || 0;
+                document.getElementById('p-stock').value = p[DB_FIELDS.PRODUCTS.FIELDS.STOCK] || 0;
+                document.getElementById('p-desc').value = p[DB_FIELDS.PRODUCTS.FIELDS.DESCRIPTION] || '';
+
+                const productAttrs = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]);
+                const attrCont = document.getElementById('attributes-container');
+                masterAttrs.forEach(attr => {
+                    const isChecked = productAttrs.includes(attr.name) ? 'checked' : '';
+                    attrCont.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${attr.name}" ${isChecked}> ${attr.icon} ${attr.name}</label>`;
+                });
+
+                const productTags = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.TAGS]);
+                const tagCont = document.getElementById('tags-container');
+                allTags.forEach(tag => {
+                    const isChecked = productTags.includes(tag) ? 'checked' : '';
+                    tagCont.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${tag}" ${isChecked}> ${tag}</label>`;
+                });
+
+                const catSelect = document.getElementById('p-cat');
+                categories.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c; opt.innerText = c;
+                    if (c === p[DB_FIELDS.PRODUCTS.FIELDS.CATEGORY]) opt.selected = true;
+                    catSelect.appendChild(opt);
+                });
+
+                document.getElementById('form-ui').style.opacity = "1";
+            } catch (err) { console.error("Load Error:", err); }
+        }
+
+        onAuthStateChanged(auth, (user) => { if (user) initPage(); else window.location.href = "admin-login.html"; });
+
+        window.saveProduct = async () => {
+            const saveBtn = document.querySelector('.btn-save');
+            const originalText = saveBtn.innerText;
+            saveBtn.disabled = true;
+            saveBtn.innerText = "Saving...";
+
+            const selectedAttrs = Array.from(document.querySelectorAll('#attributes-container input:checked')).map(cb => cb.value);
+            const selectedTags = Array.from(document.querySelectorAll('#tags-container input:checked')).map(cb => cb.value);
+
+            const data = {
+                [DB_FIELDS.PRODUCTS.FIELDS.ID]: document.getElementById('p-id').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.TITLE]: document.getElementById('p-title').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.IMAGE]: document.getElementById('p-img').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.PRICE]: Number(document.getElementById('p-price').value),
+                [DB_FIELDS.PRODUCTS.FIELDS.DISCOUNT_PRICE]: Number(document.getElementById('p-discount').value),
+                [DB_FIELDS.PRODUCTS.FIELDS.STOCK]: Number(document.getElementById('p-stock').value),
+                [DB_FIELDS.PRODUCTS.FIELDS.DESCRIPTION]: document.getElementById('p-desc').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.CATEGORY]: document.getElementById('p-cat').value,
+                [DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]: selectedAttrs,
+                [DB_FIELDS.PRODUCTS.FIELDS.TAGS]: selectedTags,
+                [DB_FIELDS.PRODUCTS.FIELDS.UPDATED_AT]: serverTimestamp()
+            };
+            
+            try {
+                await updateDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, productId), data);
+                saveBtn.innerText = "Saved!";
+                setTimeout(() => { saveBtn.innerText = originalText; saveBtn.disabled = false; }, 2000);
+            } catch (err) { 
+                alert("Error: " + err.message); 
+                saveBtn.innerText = originalText; 
+                saveBtn.disabled = false; 
+            }
+        };
+    </script>
+</body>
+</html>
+

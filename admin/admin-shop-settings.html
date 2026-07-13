@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Shop Configuration</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        
+        body { 
+            margin: 0; 
+            background: #f0f2f5; 
+            min-height: 100vh;
+        }
+        
+        .content { max-width: 500px; margin: 20px auto; padding: 0 20px; }
+        .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .row { margin-bottom: 20px; }
+        label { display: block; font-weight: 900; font-size: 13px; margin-bottom: 8px; color: #555; }
+        input, select { width: 100%; padding: 14px; border: 1.5px solid #ddd; border-radius: 12px; font-size: 16px; }
+        #save-btn {
+            width: 100%;
+            padding: 16px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .add-btn { display: inline-block; margin-top: 8px; font-size: 12px; color: #007bff; text-decoration: none; font-weight: 700; }
+    </style>
+</head>
+<body>
+
+    <div class="content">
+        <h2>Shop Configuration</h2>
+        <div class="card">
+            <div id="settings-list">Loading settings...</div>
+            <button id="save-btn" onclick="window.saveData()">
+                Save All Changes
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db } from "./firebase-config.js";
+        import { DB_FIELDS } from "./globaldata.js";
+        import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+
+        async function init() {
+            await Promise.all([
+                injectHeader(),
+                injectFooter("settings")
+            ]);
+            await load();
+        }
+        
+        const S = DB_FIELDS.SETTINGS;
+        let currentSettings = {};
+        let allCurrencies = {}; 
+
+        async function load() {
+            try {
+                const [shopSnap, countrySnap] = await Promise.all([
+                    getDoc(doc(db, S.COLLECTION, S.DOC_SHOP)),
+                    getDoc(doc(db, S.COLLECTION, S.DOC_COUNTRY)) 
+                ]);
+
+                if (shopSnap.exists()) currentSettings = shopSnap.data();
+                
+                if (countrySnap.exists()) {
+                    allCurrencies = countrySnap.data()[S.FIELD_MAP] || {};
+                }
+                render();
+            } catch (err) { console.error("Load Error:", err); }
+        }
+
+        function render() {
+            const options = Object.keys(allCurrencies).map(countryName => {
+                const cur = allCurrencies[countryName];
+                const isSelected = currentSettings[S.ACTIVE_CURRENCY]?.code === cur.code ? 'selected' : '';
+                return `<option value='${JSON.stringify(cur)}' ${isSelected}>${countryName} (${cur.code} - ${cur.symbol})</option>`;
+            }).join('');
+
+            const langValue = Array.isArray(currentSettings[S.INCLUDED_LANGUAGES]) 
+                ? currentSettings[S.INCLUDED_LANGUAGES].join(', ') 
+                : (currentSettings[S.INCLUDED_LANGUAGES] || "");
+
+            document.getElementById("settings-list").innerHTML = `
+                <div class="row">
+                    <label>Active Currency</label>
+                    <select id="currency-select" onchange="updateCurrency()">${options}</select>
+                    <a href="shop-currency.html" class="add-btn">+ Manage Currencies</a>
+                </div>
+                <div class="row"><label>Shop Name</label><input type="text" id="shopname" value="${currentSettings[S.SHOP_NAME] || ''}"></div>
+                <div class="row"><label>Logo URL</label><input type="text" id="logourl" value="${currentSettings[S.LOGO_URL] || ''}"></div>
+                <div class="row"><label>Email</label><input type="text" id="email" value="${currentSettings[S.EMAIL] || ''}"></div>
+                <div class="row"><label>Phone</label><input type="text" id="phone" value="${currentSettings[S.PHONE] || ''}"></div>
+                <div class="row"><label>Address</label><input type="text" id="address" value="${currentSettings[S.ADDRESS] || ''}"></div>
+                <div class="row"><label>Tax Code</label><input type="text" id="taxcode" value="${currentSettings[S.TAX_CODE] || ''}"></div>
+                <div class="row"><label>VAT %</label><input type="number" id="vatpercent" value="${currentSettings[S.VAT_PERCENT] || 0}"></div>
+                <div class="row"><label>Languages (comma separated, e.g. en, vi)</label><input type="text" id="languages" value="${langValue}"></div>
+            `;
+        }
+
+        window.updateCurrency = () => {
+            currentSettings[S.ACTIVE_CURRENCY] = JSON.parse(document.getElementById('currency-select').value);
+        };
+
+        window.saveData = async () => {
+            const langArray = document.getElementById('languages').value.split(',').map(l => l.trim()).filter(l => l !== "");
+            const updatedData = {
+                ...currentSettings,
+                [S.SHOP_NAME]: document.getElementById('shopname').value,
+                [S.LOGO_URL]: document.getElementById('logourl').value,
+                [S.EMAIL]: document.getElementById('email').value,
+                [S.PHONE]: document.getElementById('phone').value,
+                [S.ADDRESS]: document.getElementById('address').value,
+                [S.TAX_CODE]: document.getElementById('taxcode').value,
+                [S.VAT_PERCENT]: Number(document.getElementById('vatpercent').value),
+                [S.INCLUDED_LANGUAGES]: langArray
+            };
+            await setDoc(doc(db, S.COLLECTION, S.DOC_SHOP), updatedData);
+            alert("Settings Saved!");
+            location.reload();
+        };
+
+        init();
+    </script>
+</body>
+</html>
+

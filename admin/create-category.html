@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Manage Categories</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #f0f2f5; padding-top: 80px; padding-bottom: 100px; margin: 0; }
+        .container { max-width: 500px; margin: auto; padding: 0 20px; }
+        
+        h2 { color: #1c1e21; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        input { width: 100%; padding: 14px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button { padding: 12px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+        .btn-add { width: 100%; background: #007bff; color: white; }
+        
+        .cat-item { display: flex; align-items: center; justify-content: space-between; padding: 12px; border: 1px solid #eee; margin-bottom: 8px; border-radius: 8px; background: #fff; cursor: move; }
+        .cat-item.dragging { opacity: 0.5; background: #e3f2fd; border: 2px dashed #007bff; }
+        .cat-name { font-size: 17px; flex-grow: 1; margin-left: 10px; }
+        
+        .btn-action { padding: 8px 12px; margin-left: 5px; font-size: 13px; }
+        .btn-edit { background: #ffc107; color: #000; }
+        .btn-del { background: #dc3545; color: white; }
+        .edit-input { width: 60%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Categories (<span id="cat-count">0</span>)</h2>
+    <p style="font-size: 12px; color: #888;">Drag and drop to reorder.</p>
+    
+    <div class="card">
+        <input type="text" id="new-cat" placeholder="Enter name or comma separated names...">
+        <button class="btn-add" onclick="addCategory()">Add Category</button>
+    </div>
+
+    <div id="cat-list">
+        <p style="text-align:center; color:#888;">Loading...</p>
+    </div>
+</div>
+
+<script type="module">
+    import { auth, db } from "./firebase-config.js";
+    import { DB_FIELDS } from "./globaldata.js";
+    import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+    import { injectHeader } from "./master-header.js";
+    import { injectFooter } from "./master-footer.js";
+
+    injectHeader();
+    injectFooter('categories'); // Adjust identifier as needed
+
+    const C = DB_FIELDS.CATEGORIES;
+    let categories = [];
+    let draggedIndex = null;
+    const listDiv = document.getElementById("cat-list");
+
+    onAuthStateChanged(auth, async (user) => {
+        if (!user) { window.location.href = "admin-login.html"; return; }
+        loadCategories();
+    });
+
+    async function loadCategories() {
+        const snap = await getDoc(doc(db, C.COLLECTION, C.DOC_CATEGORIES));
+        categories = snap.exists() ? snap.data()[C.FIELDS.LIST] : [];
+        render();
+    }
+
+    function render() {
+        document.getElementById("cat-count").innerText = categories.length;
+        listDiv.innerHTML = "";
+        
+        categories.forEach((c, index) => {
+            const div = document.createElement("div");
+            div.className = "cat-item";
+            div.draggable = true;
+            div.innerHTML = `
+                <span>≡</span>
+                <span class="cat-name" id="text-${index}">${c}</span>
+                <input type="text" class="edit-input" id="edit-${index}" value="${c}" style="display:none;">
+                <div style="display: flex;">
+                    <button class="btn-action btn-edit" id="btn-edit-${index}" onclick="toggleEdit(${index})">Edit</button>
+                    <button class="btn-action btn-del" onclick="deleteCategory(${index})">Del</button>
+                </div>
+            `;
+
+            div.addEventListener("dragstart", () => { draggedIndex = index; div.classList.add("dragging"); });
+            div.addEventListener("dragend", () => { div.classList.remove("dragging"); });
+            div.addEventListener("dragover", (e) => e.preventDefault());
+            div.addEventListener("drop", (e) => {
+                e.preventDefault();
+                const item = categories.splice(draggedIndex, 1)[0];
+                categories.splice(index, 0, item);
+                saveToDb();
+            });
+
+            listDiv.appendChild(div);
+        });
+    }
+
+    window.toggleEdit = (index) => {
+        const textSpan = document.getElementById(`text-${index}`);
+        const inputField = document.getElementById(`edit-${index}`);
+        const btn = document.getElementById(`btn-edit-${index}`);
+        
+        if (inputField.style.display === "none") {
+            textSpan.style.display = "none";
+            inputField.style.display = "inline-block";
+            btn.innerText = "Save";
+        } else {
+            const val = inputField.value.trim();
+            if(val) {
+                categories[index] = val.charAt(0).toUpperCase() + val.slice(1).toLowerCase();
+                saveToDb();
+            }
+        }
+    };
+
+    window.addCategory = async () => {
+        const input = document.getElementById("new-cat");
+        if(!input.value.trim()) return;
+        const newItems = input.value.split(',').map(i => i.trim()).filter(i => i !== "");
+        newItems.forEach(item => {
+            const f = item.charAt(0).toUpperCase() + item.slice(1).toLowerCase();
+            if(!categories.includes(f)) categories.push(f);
+        });
+        await saveToDb();
+        input.value = "";
+    };
+
+    window.deleteCategory = async (index) => {
+        if(confirm("Delete this category?")) {
+            categories.splice(index, 1);
+            await saveToDb();
+        }
+    };
+
+    async function saveToDb() {
+        await setDoc(doc(db, C.COLLECTION, C.DOC_CATEGORIES), { [C.FIELDS.LIST]: categories });
+        render();
+    }
+</script>
+</body>
+</html>
+

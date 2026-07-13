@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Admin - Manage Currencies</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #f0f2f5; margin: 0; padding-top: 80px; padding-bottom: 100px; } 
+        
+        .container { max-width: 500px; margin: auto; padding: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        
+        input { width: 100%; padding: 14px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button.btn-add { width: 100%; padding: 16px; background: #28a745; color: white; border: none; border-radius: 8px; font-weight: 900; font-size: 16px; margin-top: 10px; cursor: pointer; }
+        
+        .btn-next { width: 100%; padding: 16px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: 900; font-size: 16px; margin-top: 10px; cursor: pointer; text-decoration: none; display: block; text-align: center; }
+        
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 18px 0; border-bottom: 1px solid #eee; font-size: 16px; }
+        .item-info { display: flex; flex-direction: column; gap: 4px; }
+        .item-symbol-area { display: flex; align-items: center; gap: 15px; }
+        .symbol-text { font-weight: 900; font-size: 18px; color: #444; }
+        
+        .btn-del { background: #dc3545; color: white; padding: 8px 16px; font-size: 14px; border-radius: 6px; border: none; cursor: pointer; font-weight: 700; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Manage Currencies</h2>
+    
+    <div class="card">
+        <input type="text" id="cName" placeholder="Country Name">
+        <input type="text" id="cCode" placeholder="Currency Code (e.g. USD)">
+        <input type="text" id="cSymbol" placeholder="Symbol (e.g. $)">
+        <button class="btn-add" onclick="addCurrency()">Add/Update Currency</button>
+    </div>
+
+    <div class="card" id="currency-list">Loading...</div>
+
+    <a href="admin-shop-settings.html" class="btn-next">Next</a>
+</div>
+
+<script type="module">
+    import { injectHeader } from "./master-header.js";
+    import { injectFooter } from "./master-footer.js";
+    import { db, auth } from "./firebase-config.js";
+    import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+    import { DB_FIELDS } from "./globaldata.js";
+
+    // Initialize Layout
+    injectHeader();
+    injectFooter('settings');
+
+    const SETTINGS = DB_FIELDS.SETTINGS;
+    let countryMap = {};
+
+    async function loadCurrencies() {
+        try {
+            const docRef = doc(db, SETTINGS.COLLECTION, SETTINGS.DOC_COUNTRY);
+            const snap = await getDoc(docRef);
+            
+            if (snap.exists()) {
+                // Now correctly utilizing FIELD_MAP: "map" from globaldata.js
+                countryMap = snap.data()[SETTINGS.FIELD_MAP] || {};
+                render();
+            } else {
+                countryMap = {};
+                render();
+            }
+        } catch (e) { 
+            console.error("Error loading:", e); 
+            document.getElementById('currency-list').innerText = "Error loading data.";
+        }
+    }
+
+    window.addCurrency = async () => {
+        const name = document.getElementById('cName').value.trim();
+        const code = document.getElementById('cCode').value.trim();
+        const symbol = document.getElementById('cSymbol').value.trim();
+        
+        if(!name || !code || !symbol) return alert("Please fill all fields");
+        
+        countryMap[name] = { code, symbol };
+        
+        try {
+            await setDoc(doc(db, SETTINGS.COLLECTION, SETTINGS.DOC_COUNTRY), { 
+                [SETTINGS.FIELD_MAP]: countryMap 
+            });
+            
+            document.getElementById('cName').value = '';
+            document.getElementById('cCode').value = '';
+            document.getElementById('cSymbol').value = '';
+            render();
+        } catch (e) {
+            alert("Error saving: " + e.message);
+        }
+    };
+
+    window.deleteCurrency = async (name) => {
+        if(confirm('Delete ' + name + '?')) {
+            const deletedCode = countryMap[name].code;
+            delete countryMap[name];
+            
+            try {
+                // Sync with shop settings to remove from supportedCurrencies
+                const shopRef = doc(db, SETTINGS.COLLECTION, SETTINGS.DOC_SHOP);
+                const shopSnap = await getDoc(shopRef);
+                
+                if (shopSnap.exists()) {
+                    let data = shopSnap.data();
+                    if (Array.isArray(data[SETTINGS.SUPPORTED_CURRENCIES])) {
+                        data[SETTINGS.SUPPORTED_CURRENCIES] = data[SETTINGS.SUPPORTED_CURRENCIES].filter(c => c.code !== deletedCode);
+                        await setDoc(shopRef, data);
+                    }
+                }
+
+                await setDoc(doc(db, SETTINGS.COLLECTION, SETTINGS.DOC_COUNTRY), { 
+                    [SETTINGS.FIELD_MAP]: countryMap 
+                });
+                render();
+            } catch (e) {
+                alert("Error deleting: " + e.message);
+            }
+        }
+    };
+
+    function render() {
+        const list = document.getElementById('currency-list');
+        const keys = Object.keys(countryMap);
+        
+        list.innerHTML = keys.length === 0 ? "No currencies found." : keys.sort().map(name => `
+            <div class="item">
+                <div class="item-info">
+                    <strong>${name}</strong>
+                    <span style="font-size: 13px; color: #666;">${countryMap[name].code}</span>
+                </div>
+                <div class="item-symbol-area">
+                    <span class="symbol-text">${countryMap[name].symbol}</span>
+                    <button class="btn-del" onclick="deleteCurrency('${name}')">X</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    onAuthStateChanged(auth, (user) => { 
+        if (user) loadCurrencies(); 
+        else window.location.href = "admin-login.html";
+    });
+</script>
+</body>
+</html>
+

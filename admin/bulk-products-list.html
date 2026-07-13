@@ -1,0 +1,158 @@
+<style>
+    .product-list { margin-top: 20px; padding: 0 10px; min-height: 100vh; }
+    .product-card { 
+        background: #fff; padding: 20px; border-radius: 28px; margin-bottom: 20px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.06); display: flex; align-items: center; gap: 20px;
+        transition: opacity 0.3s ease;
+    }
+    .product-img { width: 90px; height: 90px; border-radius: 22px; object-fit: cover; background: #f0f0f0; }
+    .product-info { flex-grow: 1; }
+    .title { font-weight: 800; color: #2d3436; font-size: 19px; margin-bottom: 5px; }
+    .meta { font-size: 14px; color: #636e72; margin-top: 3px; font-weight: 700; }
+    
+    /* Description Styles: Slightly bigger and bolder */
+    .desc-text { font-size: 18px; color: #2d3436; font-weight: 900; margin: 8px 0; }
+    
+    .price-text { color: #0984e3; font-weight: 900; font-size: 18px; margin-top: 8px !important; }
+    
+    /* Attribute & Tags Styling */
+    .attr-pills { margin: 12px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .attr-pill { 
+        display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; 
+        padding: 6px 14px; border-radius: 20px; background: #f8f9fa; cursor: pointer; 
+        user-select: none; -webkit-user-select: none; 
+    }
+    .tag-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .tag-pill { 
+        font-size: 12px; font-weight: 800; color: #636e72; background: #f1f2f6; 
+        padding: 5px 12px; border-radius: 14px; 
+    }
+    
+    .action-row { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .btn-act { padding: 16px 10px; border-radius: 50px; border: none; font-size: 12px; font-weight: 900; cursor: pointer; text-align: center; text-transform: uppercase; }
+    .btn-edit { background: #eef5ff; color: #0984e3; }
+    .btn-copy { background: #f1f2f6; color: #57606f; }
+    .btn-del { background: #fff5f5; color: #ff4757; }
+</style>
+
+<div class="product-list" id="product-results"></div>
+
+<script type="module">
+    import { store } from "./store.js";
+    import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
+    import { db } from "./firebase-config.js";
+    import { doc, getDoc, getDocs, collection, deleteDoc, setDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+    let attrConfig = [];
+    const CACHE_KEY = 'products_cache';
+    const ensureArray = (val) => Array.isArray(val) ? val : (val ? [val] : []);
+
+    store.renderCallback = () => filterAndRender(store.allProducts);
+
+    async function swrFetch() {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+            store.allProducts = JSON.parse(cached);
+            filterAndRender(store.allProducts);
+        }
+
+        try {
+            const q = query(collection(db, DB_FIELDS.PRODUCTS.COLLECTION), orderBy(DB_FIELDS.PRODUCTS.FIELDS.UPDATED_AT, "desc"));
+            const snap = await getDocs(q);
+            const freshData = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+            store.allProducts = freshData;
+            localStorage.setItem(CACHE_KEY, JSON.stringify(freshData));
+            filterAndRender(store.allProducts);
+        } catch (err) { console.error("Revalidation failed", err); }
+    }
+
+    async function filterAndRender(products = []) {
+        if (attrConfig.length === 0) await fetchAttrConfig();
+        
+        const container = document.getElementById("product-results");
+        const currency = store.settings?.activecurrency?.symbol || "$";
+        
+        const filtered = products.filter(p => {
+            const pTags = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.TAGS]);
+            const pAttrs = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]);
+            const catMatch = store.filters.category === "All" || p[DB_FIELDS.PRODUCTS.FIELDS.CATEGORY] === store.filters.category;
+            const tagMatch = store.filters.tag === "All" || pTags.includes(store.filters.tag);
+            const attrMatch = store.filters.attribute === "All" || pAttrs.includes(store.filters.attribute);
+            return catMatch && tagMatch && attrMatch;
+        });
+
+        container.innerHTML = filtered.map(p => {
+            const attrs = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.ATTRIBUTES]);
+            const tags = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.TAGS]);
+            const price = Number(p[DB_FIELDS.PRODUCTS.FIELDS.PRICE]) || 0;
+            const discount = Number(p[DB_FIELDS.PRODUCTS.FIELDS.DISCOUNT_PRICE]) || 0;
+            
+            let priceHtml = `<div class="meta price-text">Price: ${currency}${price}</div>`;
+            if (discount > 0 && discount < price) {
+                priceHtml = `
+                    <div class="meta price-text" style="color: #ff4757; font-weight: 900;">
+                        <del style="color: #b2bec3; margin-right: 8px; font-weight: 900;">${currency}${price}</del> 
+                        ${currency}${discount}
+                    </div>`;
+            }
+
+            const pAttrsHtml = attrs.map(attrName => {
+                const config = attrConfig.find(a => a.name === attrName);
+                return config ? 
+                    `<span class="attr-pill" style="color:${config.color}; border: 1px solid ${config.color}" onclick="window.location.href='create-product-attributes.html'">${config.icon} ${attrName}</span>` :
+                    `<span class="attr-pill" onclick="window.location.href='create-product-attributes.html'">${attrName}</span>`;
+            }).join('');
+            
+            const pTagsHtml = tags.map(tag => `<span class="tag-pill">#${tag}</span>`).join('');
+
+            return `
+                <div class="product-card">
+                    <img src="${getFullImageUrl(p[DB_FIELDS.PRODUCTS.FIELDS.IMAGE])}" class="product-img" onerror="this.src=''">
+                    <div class="product-info">
+                        <div class="title">${p[DB_FIELDS.PRODUCTS.FIELDS.TITLE] || 'Untitled'}</div>
+                        <div class="meta">ID: ${p.id} | Stock: ${p[DB_FIELDS.PRODUCTS.FIELDS.STOCK] || 0}</div>
+                        
+                        <div class="desc-text">
+                            ${p[DB_FIELDS.PRODUCTS.FIELDS.DESCRIPTION] || 'No description available'}
+                        </div>
+                        
+                        ${priceHtml}
+                        <div class="attr-pills">${pAttrsHtml}</div>
+                        <div class="tag-pills">${pTagsHtml}</div>
+                        
+                        <div class="action-row">
+                            <button class="btn-act btn-edit" onclick="editProduct('${p.id}')">EDIT</button>
+                            <button class="btn-act btn-copy" onclick="duplicateProduct(${JSON.stringify(p).replace(/"/g, '&quot;')})">DUPE</button>
+                            <button class="btn-act btn-del" onclick="deleteProduct('${p.id}')">DEL</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function fetchAttrConfig() {
+        try {
+            const snap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES));
+            if (snap.exists()) attrConfig = snap.data()[DB_FIELDS.SETTINGS.FIELD_ATTRIBUTES_LIST] || [];
+        } catch (e) { console.error("Failed to load attributes", e); }
+    }
+
+    swrFetch();
+
+    window.editProduct = (id) => window.location.href = `edit-product.html?id=${id}`;
+    window.deleteProduct = async (id) => {
+        if (!confirm("Delete product permanently?")) return;
+        await deleteDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, id));
+        swrFetch();
+    };
+    window.duplicateProduct = async (p) => {
+        if (!confirm("Duplicate this product?")) return;
+        const newId = "NEW_" + Date.now();
+        const newData = { ...p, id: newId, title: p.title + " (Copy)", updatedat: serverTimestamp() };
+        delete newData.firebaseId; 
+        await setDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, newId), newData);
+        swrFetch();
+    };
+</script>
+

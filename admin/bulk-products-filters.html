@@ -1,0 +1,84 @@
+<style>
+    .section-label { font-size: 12px; font-weight: 900; color: #636e72; margin: 20px 0 10px 5px; }
+    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
+    .tab-btn { 
+        background: #ffffff; padding: 12px 5px; border-radius: 25px; 
+        font-size: 12px; cursor: pointer; border: 2px solid #dfe6e9; 
+        font-weight: 800; color: #636e72; transition: all 0.2s; text-align: center;
+    }
+    .tab-btn.active { background: #0984e3; color: white; border-color: #0984e3; }
+</style>
+
+<div id="filter-ui">
+    <div class="section-label">SELECT CATEGORY</div>
+    <div class="tabs" id="cat-tabs"></div>
+
+    <div class="section-label">SELECT TAGS</div>
+    <div class="tabs" id="tag-tabs"></div>
+
+    <div class="section-label">PRODUCT ATTRIBUTES</div>
+    <div class="tabs" id="attr-tabs"></div>
+</div>
+
+<script type="module">
+    import { store } from "./store.js";
+    import { db } from "./firebase-config.js";
+    import { doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+    import { DB_FIELDS } from "./globaldata.js";
+
+    async function loadDynamicOptions() {
+        try {
+            // 1. Fetch Categories
+            const catDoc = await getDoc(doc(db, DB_FIELDS.CATEGORIES.COLLECTION, DB_FIELDS.CATEGORIES.DOC_CATEGORIES));
+            const categories = catDoc.exists() ? ["All", ...(catDoc.data()[DB_FIELDS.CATEGORIES.FIELDS.LIST] || [])] : ["All"];
+            renderTabs('category', 'cat-tabs', categories);
+
+            // 2. Fetch Tags
+            const tagSnap = await getDocs(collection(db, DB_FIELDS.TAGS.COLLECTION));
+            const tags = ["All", ...tagSnap.docs.map(d => d.data()[DB_FIELDS.TAGS.FIELDS.NAME])];
+            renderTabs('tag', 'tag-tabs', tags);
+
+            // 3. Fetch Attributes
+            const attrDoc = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES));
+            const attributeData = attrDoc.exists() ? (attrDoc.data()[DB_FIELDS.SETTINGS.FIELD_ATTRIBUTES_LIST] || []) : [];
+            const attributes = ["All", ...attributeData.map(a => a.name)];
+            renderTabs('attribute', 'attr-tabs', attributes);
+            
+        } catch (e) { 
+            console.error("Error loading dynamic filters:", e); 
+        }
+    }
+
+    function renderTabs(type, containerId, items) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        
+        items.forEach(item => {
+            const btn = document.createElement('div');
+            // Check if this item is currently selected in the store to set active state
+            btn.className = `tab-btn ${store.filters[type] === item ? 'active' : ''}`;
+            btn.innerText = item;
+            
+            btn.onclick = () => {
+                // Update Central Store
+                store.filters[type] = item;
+                
+                // Refresh UI active states within this container
+                container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Trigger the callback function in your main Product List component
+                if (typeof store.renderCallback === 'function') {
+                    store.renderCallback();
+                } else {
+                    console.warn("store.renderCallback is not defined in the product list.");
+                }
+            };
+            container.appendChild(btn);
+        });
+    }
+
+    // Initialize
+    loadDynamicOptions();
+</script>
+

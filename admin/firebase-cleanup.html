@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Order Management</title>
+    <style>
+        :root { --primary: #28a745; --danger: #dc3545; --bg: #f8f9fa; }
+        body { font-family: 'Roboto', sans-serif; background: var(--bg); margin: 0; padding: 15px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 12px; cursor: pointer; font-weight: 900; margin-bottom: 20px; color: white; }
+        .btn-danger { background: var(--danger); }
+        .order-card { background: #fff; border: 1px solid #eee; padding: 16px; margin-bottom: 16px; border-radius: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .field-group { margin: 8px 0; border-bottom: 1px solid #f0f0f0; padding-bottom: 4px; }
+        .field-label { font-weight: 900; color: #555; text-transform: uppercase; font-size: 0.75em; }
+        .field-value { font-size: 0.95em; color: #000; word-break: break-all; }
+        b { color: #333; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Admin Dashboard</h1>
+        <button class="btn btn-danger" onclick="runMigration()">Cleanup: Fix Field Names & Format Dates</button>
+        <div id="order-history">Loading orders...</div>
+    </div>
+
+<script type="module">
+    import { db } from "./firebase-config.js";
+    import { collection, getDocs, doc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+    // 1. MIGRATION LOGIC
+    // Renames fields to lowercase, removes successdate, and adds invoicedate in ISO format
+    window.runMigration = async () => {
+        if (!confirm("This will rename fields, remove 'successdate', and add 'invoicedate' (ISO). Proceed?")) return;
+        const snap = await getDocs(collection(db, "orders"));
+        
+        for (const d of snap.docs) {
+            const data = d.data();
+            const updates = {};
+
+            // 1. Rename camelCase to lowercase
+            if (data.invoiceNumber) { updates.invoicenumber = data.invoiceNumber; updates.invoiceNumber = deleteField(); }
+            if (data.orderId) { updates.orderid = data.orderId; updates.orderId = deleteField(); }
+            
+            // 2. Remove successdate
+            if (data.successdate !== undefined) { updates.successdate = deleteField(); }
+            if (data.successDate !== undefined) { updates.successDate = deleteField(); }
+
+            // 3. Ensure invoicedate exists in ISO format (if missing, use current time)
+            if (!data.invoicedate) {
+                updates.invoicedate = new Date().toISOString();
+            }
+            
+            if (Object.keys(updates).length > 0) {
+                await updateDoc(doc(db, "orders", d.id), updates);
+            }
+        }
+        alert("Cleanup complete!");
+        refreshList();
+    };
+
+    // 2. RECURSIVE RENDER LOGIC
+    function formatValue(val) {
+        if (typeof val === 'object' && val !== null) {
+            return Object.entries(val).map(([k, v]) => 
+                `<div style="margin-left:10px;"><span class="field-label">${k}:</span> ${formatValue(v)}</div>`
+            ).join('');
+        }
+        return val;
+    }
+
+    async function refreshList() {
+        const container = document.getElementById("order-history");
+        container.innerHTML = "Refreshing...";
+        
+        const snap = await getDocs(collection(db, "orders"));
+        
+        container.innerHTML = snap.docs.map(d => {
+            const o = d.data();
+            const fieldsHtml = Object.entries(o).map(([key, val]) => `
+                <div class="field-group">
+                    <div class="field-label">${key}</div>
+                    <div class="field-value">${formatValue(val)}</div>
+                </div>
+            `).join('');
+            
+            return `<div class="order-card">${fieldsHtml}</div>`;
+        }).join('') || '<p>No orders found.</p>';
+    }
+
+    refreshList();
+</script>
+</body>
+</html>
+

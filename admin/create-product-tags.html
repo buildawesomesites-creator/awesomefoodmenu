@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Manage Product Tags</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #f8f9fa; padding-top: 80px; padding-bottom: 100px; margin: 0; }
+        .container { max-width: 500px; margin: auto; padding: 0 20px; }
+        h2 { text-align: center; color: #333; margin-bottom: 20px; }
+        .form-card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05); margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        .btn-submit { width: 100%; padding: 15px; border: none; border-radius: 12px; background: #ff922b; color: white; font-weight: bold; cursor: pointer; }
+        .tag-item { background: white; padding: 15px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .actions button { padding: 5px 10px; border: none; border-radius: 6px; cursor: pointer; margin-left: 5px; }
+        .btn-edit { background: #4dabf7; color: white; }
+        .btn-del { background: #ff4757; color: white; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+
+    <div class="container">
+        <h2>Manage Product Tags</h2>
+        <div class="form-card">
+            <div class="form-group">
+                <input type="text" id="tag-name" placeholder="Enter tag name...">
+            </div>
+            <button class="btn-submit" id="save-btn">Save Tag</button>
+        </div>
+
+        <div id="tags-list"></div>
+    </div>
+
+    <div id="footer-container"></div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        import { auth, db } from "./firebase-config.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+        import { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+        injectHeader();
+        injectFooter('products');
+
+        onAuthStateChanged(auth, (user) => {
+            if (!user) window.location.href = "admin-login.html";
+        });
+
+        // Add Tag
+        document.getElementById('save-btn').onclick = async () => {
+            const input = document.getElementById('tag-name');
+            if (!input.value.trim()) return alert("Enter tag name");
+            try {
+                await addDoc(collection(db, "tags"), { name: input.value.trim(), createdat: serverTimestamp() });
+                input.value = '';
+            } catch (e) { alert("Error saving tag"); }
+        };
+
+        // Fetch & Render Tags
+        const listContainer = document.getElementById('tags-list');
+        onSnapshot(query(collection(db, "tags"), orderBy("createdat", "desc")), (snapshot) => {
+            listContainer.innerHTML = '';
+            snapshot.forEach((docSnap) => {
+                const data = docSnap.data();
+                const div = document.createElement('div');
+                div.className = 'tag-item';
+                div.innerHTML = `
+                    <span>${data.name}</span>
+                    <div class="actions">
+                        <button class="btn-edit" onclick="editTag('${docSnap.id}', '${data.name}')">Edit</button>
+                        <button class="btn-del" onclick="deleteTag('${docSnap.id}')">Delete</button>
+                    </div>
+                `;
+                listContainer.appendChild(div);
+            });
+        });
+
+        // Global functions for buttons
+        window.deleteTag = async (id) => {
+            if (confirm("Delete this tag?")) await deleteDoc(doc(db, "tags", id));
+        };
+
+        window.editTag = async (id, currentName) => {
+            const newName = prompt("Edit tag name:", currentName);
+            if (newName && newName !== currentName) {
+                await updateDoc(doc(db, "tags", id), { name: newName });
+            }
+        };
+    </script>
+</body>
+</html>
+

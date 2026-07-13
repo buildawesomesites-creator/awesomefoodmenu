@@ -1,0 +1,137 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Manage Attributes</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #f0f2f5; padding: 20px; margin: 0; padding-bottom: 100px; }
+        .container { max-width: 450px; margin: auto; }
+        .card { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        input { width: 100%; padding: 14px; border: 2px solid #f0f0f0; border-radius: 15px; font-size: 15px; }
+        input:focus { border-color: #ff922b; outline: none; }
+        .btn-pill { width: 100%; padding: 14px; border: none; border-radius: 50px; background: #ff922b; color: white; font-weight: 700; cursor: pointer; }
+        .btn-cancel { background: #868e96; margin-top: 10px; }
+        
+        .attr-item { background: white; padding: 15px 20px; border-radius: 18px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-left: 6px solid #ccc; }
+        .actions-pill { display: flex; gap: 8px; }
+        .action-btn { padding: 8px 16px; border-radius: 20px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .edit-btn { background: #eef5ff; color: #339af0; }
+        .del-btn { background: #fff5f5; color: #ff4757; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container"></div>
+    <div class="container">
+        <h2 style="text-align: center; color: #222;">Product Attributes</h2>
+        
+        <div class="card">
+            <div class="form-group"><input type="text" id="attr-name" placeholder="Name (e.g. Vegetarian)"></div>
+            <div class="form-group"><input type="text" id="attr-icon" placeholder="Icon (e.g. 🥗)"></div>
+            <div class="form-group"><input type="color" id="attr-color" value="#ff922b" style="height:50px;"></div>
+            <button class="btn-pill" id="save-btn">SAVE ATTRIBUTE</button>
+            <button class="btn-pill btn-cancel" id="cancel-btn" style="display:none;">CANCEL EDIT</button>
+        </div>
+
+        <div id="attrs-list"></div>
+    </div>
+
+    <script type="module">
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+        import { auth, db } from "./firebase-config.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+        import { doc, getDoc, setDoc, updateDoc, arrayUnion, onSnapshot } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+        injectHeader();
+        injectFooter('products');
+        onAuthStateChanged(auth, (user) => { if (!user) window.location.href = "admin-login.html"; });
+
+        const attrRef = doc(db, "settings", "product_attributes");
+        let editingIndex = -1; // -1 means we are in "Create" mode
+
+        // Handle Save/Update
+        document.getElementById('save-btn').onclick = async () => {
+            const name = document.getElementById('attr-name').value.trim();
+            const icon = document.getElementById('attr-icon').value.trim();
+            const color = document.getElementById('attr-color').value;
+
+            if (!name || !icon) return alert("Fill all fields");
+            
+            const docSnap = await getDoc(attrRef);
+            let attrs = docSnap.exists() ? docSnap.data().attributes : [];
+
+            if (editingIndex === -1) {
+                // ADD NEW
+                await (docSnap.exists() ? updateDoc(attrRef, { attributes: arrayUnion({ name, icon, color }) }) : setDoc(attrRef, { attributes: [{ name, icon, color }] }));
+            } else {
+                // UPDATE EXISTING
+                attrs[editingIndex] = { name, icon, color };
+                await updateDoc(attrRef, { attributes: attrs });
+                resetForm();
+            }
+            document.getElementById('attr-name').value = '';
+            document.getElementById('attr-icon').value = '';
+        };
+
+        function resetForm() {
+            editingIndex = -1;
+            document.getElementById('save-btn').innerText = 'SAVE ATTRIBUTE';
+            document.getElementById('cancel-btn').style.display = 'none';
+        }
+
+        document.getElementById('cancel-btn').onclick = resetForm;
+
+        // Populate form when Edit is clicked
+        window.loadForEdit = async (index) => {
+            const docSnap = await getDoc(attrRef);
+            const a = docSnap.data().attributes[index];
+            document.getElementById('attr-name').value = a.name;
+            document.getElementById('attr-icon').value = a.icon;
+            document.getElementById('attr-color').value = a.color;
+            
+            editingIndex = index;
+            document.getElementById('save-btn').innerText = 'UPDATE ATTRIBUTE';
+            document.getElementById('cancel-btn').style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        // Render List
+        onSnapshot(attrRef, (doc) => {
+            const list = document.getElementById('attrs-list');
+            list.innerHTML = '<h3 style="color:#555">Current Attributes</h3>';
+            if (doc.exists()) {
+                doc.data().attributes.forEach((a, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'attr-item';
+                    div.style.borderLeftColor = a.color;
+                    div.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 20px;">${a.icon}</span>
+                            <span style="font-weight: 600; color: ${a.color};">${a.name}</span>
+                        </div>
+                        <div class="actions-pill">
+                            <button class="action-btn edit-btn" onclick="window.loadForEdit(${index})">Edit</button>
+                            <button class="action-btn del-btn" onclick="window.deleteAttr(${index})">Delete</button>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+            }
+        });
+
+        window.deleteAttr = async (index) => {
+            if (!confirm("Delete this?")) return;
+            const docSnap = await getDoc(attrRef);
+            let attrs = docSnap.data().attributes;
+            attrs.splice(index, 1);
+            await updateDoc(attrRef, { attributes: attrs });
+        };
+    </script>
+</body>
+</html>

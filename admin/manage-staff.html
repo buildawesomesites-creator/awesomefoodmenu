@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Manage Staff</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        * { box-sizing: border-box; font-family: 'Roboto', sans-serif; }
+        body { background: #f0f2f5; min-height: 100vh; margin: 0; padding-bottom: 100px; }
+        
+        .content { max-width: 500px; margin: 20px auto; padding: 0 20px; }
+        
+        .user-card { background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #eee; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .btn-pill { padding: 8px 20px; border-radius: 20px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; text-transform: uppercase; width: 100%; margin-top: 10px; }
+        .btn-add { background: #28a745; color: white; padding: 12px; margin: 10px 0; width: 100%; }
+        .btn-del { background: #fff0f0; color: #ff4d4f; border: 1px solid #ff4d4f; }
+        .btn-edit { background: #e6f7ff; color: #1890ff; border: 1px solid #1890ff; }
+        
+        #modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; padding: 20px; overflow-y: auto;}
+        .modal-content { background: white; padding: 20px; border-radius: 16px; max-width: 400px; margin: 50px auto; }
+        .modal-content input { width: 100%; padding: 12px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .password-container { position: relative; width: 100%; }
+        .toggle-btn { position: absolute; right: 10px; top: 12px; cursor: pointer; font-size: 12px; color: #555; font-weight: bold;}
+        
+        #toast { visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center; border-radius: 20px; padding: 16px; position: fixed; z-index: 99999; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @keyframes fadein { from {opacity: 0;} to {opacity: 1;} }
+        @keyframes fadeout { from {opacity: 1;} to {opacity: 0;} }
+    </style>
+</head>
+<body>
+
+    <div class="content">
+        <button class="btn-pill btn-add" id="add-btn">+ ADD NEW MODERATOR</button>
+        <h2>Staff Management</h2>
+        <div id="admins-list">Fetching...</div>
+    </div>
+
+    <div id="toast"></div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <h3 id="modal-title">Staff Details</h3>
+            <input type="hidden" id="edit-id">
+            <input type="text" id="edit-name" placeholder="Name">
+            <input type="text" id="edit-email" placeholder="Email (Readonly when editing)" disabled>
+            <div class="password-container">
+                <input type="text" id="edit-password" placeholder="Password (Leave blank to keep current)">
+                <span class="toggle-btn" id="toggle-password">HIDE</span>
+            </div>
+            <button id="save-btn" style="width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:20px; font-weight:bold;">Save Changes</button>
+            <button id="cancel-btn" style="width:100%; padding:12px; margin-top:10px; background:#f4f4f4; border:none; border-radius:20px;">Cancel</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from "./firebase-config.js";
+        import { doc, setDoc, getDoc, collection, getDocs, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { onAuthStateChanged, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+        import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+        import { getAuth } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+        import { injectHeader } from "./master-header.js";
+        import { injectFooter } from "./master-footer.js";
+
+        async function init() {
+            await Promise.all([
+                injectHeader(),
+                injectFooter("settings")
+            ]);
+            checkAuth();
+        }
+        init();
+
+        let editingId = null;
+        const listEl = document.getElementById("admins-list");
+
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show";
+            setTimeout(() => { toast.className = ""; }, 3000);
+        }
+
+        async function fetchStaff() {
+            try {
+                const querySnapshot = await getDocs(collection(db, "admins"));
+                listEl.innerHTML = "";
+                let found = false;
+                querySnapshot.forEach(d => {
+                    const data = d.data();
+                    if (data.role === "moderator") {
+                        found = true;
+                        const div = document.createElement("div");
+                        div.className = "user-card";
+                        div.innerHTML = `
+                            <div style="font-weight:900; font-size:18px;">${data.name}</div>
+                            <div style="font-size:14px; color:#555; margin-top: 4px;">${data.email}</div>
+                            <div style="display:flex; gap:10px; margin-top:10px;">
+                                <button class="btn-pill btn-edit" onclick="window.openModal('${d.id}', '${data.name}', '${data.email}')">Edit</button>
+                                <button class="btn-pill btn-del" onclick="window.deleteStaff('${d.id}')">Delete</button>
+                            </div>
+                        `;
+                        listEl.appendChild(div);
+                    }
+                });
+                if (!found) listEl.innerHTML = "No moderators found.";
+            } catch (err) {
+                console.error(err);
+                listEl.innerHTML = "Error loading staff.";
+            }
+        }
+
+        window.openModal = (id, name, email) => {
+            editingId = id;
+            document.getElementById("modal-title").innerText = "Edit Moderator";
+            document.getElementById("edit-id").value = id;
+            document.getElementById("edit-name").value = name;
+            document.getElementById("edit-email").value = email;
+            document.getElementById("edit-email").disabled = true;
+            document.getElementById("edit-password").placeholder = "New Password (optional)";
+            document.getElementById("modal").style.display = "block";
+        };
+
+        document.getElementById('add-btn').onclick = () => {
+            editingId = null;
+            document.getElementById("modal-title").innerText = "Add New Moderator";
+            document.getElementById("edit-name").value = "";
+            document.getElementById("edit-email").value = "";
+            document.getElementById("edit-email").disabled = false;
+            document.getElementById("edit-password").placeholder = "Password (Min 6 chars)";
+            document.getElementById("modal").style.display = "block";
+        };
+
+        window.saveData = document.getElementById('save-btn').onclick = async () => {
+            const name = document.getElementById("edit-name").value;
+            const email = document.getElementById("edit-email").value;
+            const password = document.getElementById("edit-password").value;
+
+            try {
+                if (editingId) {
+                    await updateDoc(doc(db, "admins", editingId), { name });
+                    showToast("Moderator updated!");
+                } else {
+                    const appName = "secondary";
+                    const secondaryApp = !getApps().find(a => a.name === appName) 
+                        ? initializeApp(auth.app.options, appName) 
+                        : getApps().find(a => a.name === appName);
+                    
+                    const secondaryAuth = getAuth(secondaryApp);
+                    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                    
+                    await setDoc(doc(db, "admins", cred.user.uid), { name, email, role: "moderator" });
+                    showToast("Moderator created successfully!");
+                }
+                document.getElementById("modal").style.display = "none";
+                fetchStaff();
+            } catch (e) { showToast("Error: " + e.message); }
+        };
+
+        window.deleteStaff = async (id) => {
+            if(confirm('Delete this staff member?')) { await deleteDoc(doc(db, "admins", id)); fetchStaff(); }
+        };
+
+        document.getElementById('cancel-btn').onclick = () => document.getElementById("modal").style.display = "none";
+        document.getElementById('toggle-password').onclick = function() {
+            const p = document.getElementById('edit-password');
+            p.type = p.type === "text" ? "password" : "text";
+            this.innerText = p.type === "text" ? "HIDE" : "SHOW";
+        };
+
+        function checkAuth() {
+            onAuthStateChanged(auth, async (user) => {
+                if (!user) window.location.href = "admin-login.html";
+                else {
+                    const snap = await getDoc(doc(db, "admins", user.uid));
+                    if (snap.exists() && snap.data().role === "admin") {
+                        fetchStaff();
+                    } else {
+                        showToast("Unauthorized. Redirecting...");
+                        setTimeout(() => window.location.href = "admin-dashboard.html", 1500);
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+
