@@ -10,12 +10,9 @@
     .title { font-weight: 800; color: #2d3436; font-size: 19px; margin-bottom: 5px; }
     .meta { font-size: 14px; color: #636e72; margin-top: 3px; font-weight: 700; }
     
-    /* Description Styles: Slightly bigger and bolder */
     .desc-text { font-size: 18px; color: #2d3436; font-weight: 900; margin: 8px 0; }
-    
     .price-text { color: #0984e3; font-weight: 900; font-size: 18px; margin-top: 8px !important; }
     
-    /* Attribute & Tags Styling */
     .attr-pills { margin: 12px 0; display: flex; flex-wrap: wrap; gap: 8px; }
     .attr-pill { 
         display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; 
@@ -47,9 +44,21 @@
     const CACHE_KEY = 'products_cache';
     const ensureArray = (val) => Array.isArray(val) ? val : (val ? [val] : []);
 
+    async function initSettings() {
+        if (!store.settings) {
+            try {
+                const shopSnap = await getDoc(doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_SHOP));
+                if (shopSnap.exists()) {
+                    store.settings = shopSnap.data();
+                }
+            } catch (e) { console.error("Error loading settings:", e); }
+        }
+    }
+
     store.renderCallback = () => filterAndRender(store.allProducts);
 
     async function swrFetch() {
+        await initSettings();
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
             store.allProducts = JSON.parse(cached);
@@ -70,7 +79,7 @@
         if (attrConfig.length === 0) await fetchAttrConfig();
         
         const container = document.getElementById("product-results");
-        const currency = store.settings?.activecurrency?.symbol || "$";
+        const currency = store.settings?.[DB_FIELDS.SETTINGS.ACTIVE_CURRENCY]?.symbol || "$";
         
         const filtered = products.filter(p => {
             const pTags = ensureArray(p[DB_FIELDS.PRODUCTS.FIELDS.TAGS]);
@@ -87,12 +96,12 @@
             const price = Number(p[DB_FIELDS.PRODUCTS.FIELDS.PRICE]) || 0;
             const discount = Number(p[DB_FIELDS.PRODUCTS.FIELDS.DISCOUNT_PRICE]) || 0;
             
-            let priceHtml = `<div class="meta price-text">Price: ${currency}${price}</div>`;
+            let priceHtml = `<div class="meta price-text">Price: ${currency}&nbsp;${price}</div>`;
             if (discount > 0 && discount < price) {
                 priceHtml = `
                     <div class="meta price-text" style="color: #ff4757; font-weight: 900;">
-                        <del style="color: #b2bec3; margin-right: 8px; font-weight: 900;">${currency}${price}</del> 
-                        ${currency}${discount}
+                        <del style="color: #b2bec3; margin-right: 8px; font-weight: 900;">${currency}&nbsp;${price}</del> 
+                        ${currency}&nbsp;${discount}
                     </div>`;
             }
 
@@ -149,7 +158,7 @@
     window.duplicateProduct = async (p) => {
         if (!confirm("Duplicate this product?")) return;
         const newId = "NEW_" + Date.now();
-        const newData = { ...p, id: newId, title: p.title + " (Copy)", updatedat: serverTimestamp() };
+        const newData = { ...p, id: newId, title: p.title + " (Copy)", [DB_FIELDS.PRODUCTS.FIELDS.UPDATED_AT]: serverTimestamp() };
         delete newData.firebaseId; 
         await setDoc(doc(db, DB_FIELDS.PRODUCTS.COLLECTION, newId), newData);
         swrFetch();

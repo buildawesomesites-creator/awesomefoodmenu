@@ -74,16 +74,10 @@
             border: 1px solid #f0f0f0; display: flex; flex-direction: column; 
             box-shadow: 0 4px 12px rgba(0,0,0,0.06);
         }
-        /* WordPress-style uniform image grid */
         .product-img { 
-            width: 100%; 
-            height: 250px; 
-            object-fit: cover; 
-            border-radius: 12px; 
-            background: #f9f9f9; 
-            margin-bottom: 12px; 
-            display: block; 
-            cursor: pointer;
+            width: 100%; height: 250px; object-fit: cover; 
+            border-radius: 12px; background: #f9f9f9; margin-bottom: 12px; 
+            display: block; cursor: pointer;
         }
         .title { font-size: 1.3em; font-weight: 800; margin: 0 0 6px 0; }
         .desc { color: #636e72; font-size: 1em; margin: 0 0 12px 0; line-height: 1.4; }
@@ -133,27 +127,40 @@
         import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
 
         const CACHE_KEY = "admin_menu_cache";
-        const CACHE_TIME = 60000; // 1 minute
+        const CACHE_TIME = 60000;
 
         let allProducts = [];
         let attributeConfig = {}; 
+        let activeCurrency = "$"; 
         const C = DB_FIELDS.CATEGORIES;
         const P = DB_FIELDS.PRODUCTS;
+        const S = DB_FIELDS.SETTINGS;
 
         async function init() {
             await Promise.all([
                 injectHeader(),
                 injectFooter('menu'),
                 loadAttributeConfig(),
-                loadCategories()
+                loadCategories(),
+                loadCurrency()
             ]);
-
             await fetchAllProducts();
+        }
+
+        async function loadCurrency() {
+            try {
+                const docRef = doc(db, S.COLLECTION, S.DOC_SHOP);
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    activeCurrency = data[S.ACTIVE_CURRENCY] || "$";
+                }
+            } catch (e) { console.error("Error loading currency:", e); }
         }
 
         async function loadAttributeConfig() {
             try {
-                const docRef = doc(db, DB_FIELDS.SETTINGS.COLLECTION, DB_FIELDS.SETTINGS.DOC_ATTRIBUTES);
+                const docRef = doc(db, S.COLLECTION, S.DOC_ATTRIBUTES);
                 const snap = await getDoc(docRef);
                 if (snap.exists()) {
                     (snap.data().attributes || []).forEach(attr => attributeConfig[attr.name] = { color: attr.color, icon: attr.icon });
@@ -176,27 +183,20 @@
 
         async function fetchAllProducts() {
             const cached = localStorage.getItem(CACHE_KEY);
-
             if (cached) {
                 try {
                     const { data, time } = JSON.parse(cached);
-
                     if (Date.now() - time < CACHE_TIME) {
                         allProducts = data;
-                        renderAllGrouped(allProducts); // Show cached data immediately
+                        renderAllGrouped(allProducts);
                     }
                 } catch {}
             }
 
             const snap = await getDocs(collection(db, P.COLLECTION));
             allProducts = snap.docs.map(d => ({id: d.id, ...d.data()}));
-
-            localStorage.setItem(CACHE_KEY, JSON.stringify({
-                data: allProducts,
-                time: Date.now()
-            }));
-
-            renderAllGrouped(allProducts); // Refresh with latest data
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ data: allProducts, time: Date.now() }));
+            renderAllGrouped(allProducts);
         }
 
         window.openLightbox = (src) => {
@@ -217,18 +217,13 @@
         window.handleSearch = (query) => {
             const clearBtn = document.getElementById('clear-search');
             clearBtn.style.display = query.length > 0 ? 'block' : 'none';
-            
             const filtered = allProducts.filter(p => (p[P.FIELDS.TITLE] || "").toLowerCase().includes(query.toLowerCase()));
             renderAllGrouped(filtered);
-
-            if (query.length > 0 && filtered.length > 0) {
-                jumpToCategory(filtered[0][P.FIELDS.CATEGORY]);
-            }
+            if (query.length > 0 && filtered.length > 0) jumpToCategory(filtered[0][P.FIELDS.CATEGORY]);
         };
 
         window.clearSearch = () => {
-            const input = document.getElementById('search-input');
-            input.value = '';
+            document.getElementById('search-input').value = '';
             document.getElementById('clear-search').style.display = 'none';
             renderAllGrouped(allProducts);
         };
@@ -242,38 +237,38 @@
                 return acc;
             }, {});
 
+            const symbol = (typeof activeCurrency === 'object') ? (activeCurrency.symbol || '$') : activeCurrency;
+
             list.innerHTML = Object.keys(grouped).map(cat => `
                 <div id="cat-${cat}" class="cat-header">${cat}</div>
                 ${grouped[cat].map(p => {
                     const imgUrl = getFullImageUrl(p[P.FIELDS.IMAGE]);
-                    const attrs = p[P.FIELDS.ATTRIBUTES] || [];
+                    const attrs = Array.isArray(p[P.FIELDS.ATTRIBUTES]) ? p[P.FIELDS.ATTRIBUTES] : [];
+                    
                     const attrHtml = attrs.map(a => {
-                        const cfg = attributeConfig[a] || { color: "#636e72", icon: "" };
-                        return `<span class="attr-tag" style="background:${cfg.color}20; color:${cfg.color};"><span class="attr-icon">${cfg.icon}</span> ${a}</span>`;
+                        const attrName = (typeof a === 'object' && a !== null) ? (a.name || '') : a;
+                        const cfg = attributeConfig[attrName] || { color: "#636e72", icon: "" };
+                        return `<span class="attr-tag" style="background:${cfg.color}20; color:${cfg.color};"><span class="attr-icon">${cfg.icon}</span> ${attrName}</span>`;
                     }).join('');
                     
-                    const hasDiscount = p[P.FIELDS.DISCOUNT_PRICE] && p[P.FIELDS.DISCOUNT_PRICE] < p[P.FIELDS.PRICE];
+                    const price = parseFloat(p[P.FIELDS.PRICE]) || 0;
+                    const discount = parseFloat(p[P.FIELDS.DISCOUNT_PRICE]) || 0;
+                    const hasDiscount = discount > 0 && discount < price;
+
                     return `
                     <div class="product-card">
-                        <img
-                            loading="lazy"
-                            decoding="async"
-                            src="${imgUrl}"
-                            onerror="this.style.display='none'"
-                            class="product-img"
-                            onclick="openLightbox('${imgUrl}')">
+                        <img loading="lazy" decoding="async" src="${imgUrl}" onerror="this.style.display='none'" class="product-img" onclick="openLightbox('${imgUrl}')">
                         <h3 class="title">${p[P.FIELDS.TITLE] || 'Untitled'}</h3>
                         <p class="desc">${p[P.FIELDS.DESCRIPTION] || ''}</p>
                         <div>${attrHtml}</div>
                         <div class="price-row">
-                            ${hasDiscount ? `<span class="original-price">${p[P.FIELDS.PRICE]} $</span>` : ''}
-                            <span class="price">${hasDiscount ? p[P.FIELDS.DISCOUNT_PRICE] : p[P.FIELDS.PRICE]} $</span>
+                            ${hasDiscount ? `<span class="original-price">${symbol}&nbsp;${price.toFixed(2)}</span>` : ''}
+                            <span class="price">${hasDiscount ? `${symbol}&nbsp;${discount.toFixed(2)}` : `${symbol}&nbsp;${price.toFixed(2)}`}</span>
                         </div>
                     </div>`;
                 }).join('')}
             `).join('');
         }
-
         init();
     </script>
 </body>
