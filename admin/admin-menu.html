@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -133,17 +132,23 @@
         import { doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
         import { DB_FIELDS, getFullImageUrl } from "./globaldata.js";
 
+        const CACHE_KEY = "admin_menu_cache";
+        const CACHE_TIME = 60000; // 1 minute
+
         let allProducts = [];
         let attributeConfig = {}; 
         const C = DB_FIELDS.CATEGORIES;
         const P = DB_FIELDS.PRODUCTS;
 
         async function init() {
-            await Promise.all([injectHeader(), injectFooter('menu')]);
-            await loadAttributeConfig();
-            await loadCategories();
+            await Promise.all([
+                injectHeader(),
+                injectFooter('menu'),
+                loadAttributeConfig(),
+                loadCategories()
+            ]);
+
             await fetchAllProducts();
-            renderAllGrouped(allProducts);
         }
 
         async function loadAttributeConfig() {
@@ -170,8 +175,28 @@
         }
 
         async function fetchAllProducts() {
+            const cached = localStorage.getItem(CACHE_KEY);
+
+            if (cached) {
+                try {
+                    const { data, time } = JSON.parse(cached);
+
+                    if (Date.now() - time < CACHE_TIME) {
+                        allProducts = data;
+                        renderAllGrouped(allProducts); // Show cached data immediately
+                    }
+                } catch {}
+            }
+
             const snap = await getDocs(collection(db, P.COLLECTION));
             allProducts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+                data: allProducts,
+                time: Date.now()
+            }));
+
+            renderAllGrouped(allProducts); // Refresh with latest data
         }
 
         window.openLightbox = (src) => {
@@ -230,7 +255,13 @@
                     const hasDiscount = p[P.FIELDS.DISCOUNT_PRICE] && p[P.FIELDS.DISCOUNT_PRICE] < p[P.FIELDS.PRICE];
                     return `
                     <div class="product-card">
-                        <img src="${imgUrl}" onerror="this.style.display='none'" class="product-img" onclick="openLightbox('${imgUrl}')">
+                        <img
+                            loading="lazy"
+                            decoding="async"
+                            src="${imgUrl}"
+                            onerror="this.style.display='none'"
+                            class="product-img"
+                            onclick="openLightbox('${imgUrl}')">
                         <h3 class="title">${p[P.FIELDS.TITLE] || 'Untitled'}</h3>
                         <p class="desc">${p[P.FIELDS.DESCRIPTION] || ''}</p>
                         <div>${attrHtml}</div>
@@ -247,3 +278,4 @@
     </script>
 </body>
 </html>
+
